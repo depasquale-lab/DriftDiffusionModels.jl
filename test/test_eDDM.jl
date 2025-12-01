@@ -235,7 +235,8 @@ end
     hyper = DriftDiffusionModels.DDMHyper(u0, log.([0.5, 0.5, 0.5, 0.5]))
 
     # Optimize
-    q_opt = DriftDiffusionModels.optimize_trial_vi(q0, y, hyper; K=3, rng=rng)
+    eps = [randn(4) for _ in 1:10]  # 10 samples for ELBO estimation
+    q_opt = DriftDiffusionModels.optimize_trial_vi(q0, y, hyper, eps)
 
     # Check that result is valid
     @test length(q_opt.μ) == 4

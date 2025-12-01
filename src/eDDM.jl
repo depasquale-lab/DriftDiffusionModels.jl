@@ -71,37 +71,30 @@ function unpack_q(θ::AbstractVector{T}) where T<:Real
     return TrialVIParams{T}(collect(μ), collect(logσ))
 end
 
-function optimize_trial_vi(q0, y, hyper; K=3, rng=Random.default_rng())
+function optimize_trial_vi(q0, y, hyper, eps)
     θ0 = pack_q(q0)
-    eps = [randn(rng, 4) for _ in 1:K]  # fixed eps for this trial
 
     f(θ) = begin
         q = unpack_q(θ)
-        # deterministic ELBO estimate given fixed eps
         ll_acc = 0.0
+        σ = exp.(q.logσ)
         for ε in eps
-            σ = exp.(q.logσ)
             u = q.μ .+ σ .* ε
             B, v, a₀, τ = transform_params(u)
             ll_acc += logdensityof(B, v, a₀, τ, y.rt, y.choice, y.s)
         end
-        E_loglik = ll_acc / K
+        E_loglik = ll_acc / length(eps)
         elbo = E_loglik - kl_gaussian_diag(q, hyper)
         elbo_val = -elbo
         isfinite(elbo_val) ? elbo_val : 1e10
     end
 
-    res = optimize(f, θ0, BFGS(linesearch=Optim.LineSearches.BackTracking()); autodiff = :forward)
-
-    # Check if optimization succeeded
+    res = optimize(f, θ0, BFGS(linesearch=Optim.LineSearches.BackTracking()); autodiff=:forward)
     if !Optim.converged(res) || any(isnan, Optim.minimizer(res))
-        # If optimization failed, return the initial parameters
         @warn "Trial optimization failed, keeping initial parameters"
         return q0
     end
-
-    θ̂ = Optim.minimizer(res)
-    return unpack_q(θ̂)
+    return unpack_q(Optim.minimizer(res))
 end
 
 function update_hyper_from_qs(qs::Vector{<:TrialVIParams})
@@ -194,19 +187,13 @@ function fit_vi_gaussian(data::Vector{DDMResult};
         end
 
         # E-step: update each q_i
-        failed_count = 0
-        for i in 1:N
-            q_new = optimize_trial_vi(qs[i], data[i], hyper; K=K, rng=rng)
-            # Check if optimization actually improved (if not, q_new == qs[i])
-            if q_new === qs[i]
-                failed_count += 1
-            end
+        epss = [ [randn(4) for _ in 1:K] for i in 1:N ]  # serial RNG use
+
+        @threads for i in 1:N
+            q_new = optimize_trial_vi(qs[i], data[i], hyper, epss[i])
             qs[i] = q_new
         end
 
-        if verbose && failed_count > 0
-            println("  $failed_count trials failed to converge")
-        end
 
         # M-step: update hyper from q_i's
         hyper = update_hyper_from_qs(qs)
