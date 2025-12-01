@@ -2,6 +2,7 @@ module DriftDiffusionModels
 
 using LinearAlgebra
 using Random
+using Statistics
 using StatsAPI
 using Distributions
 using Optim
@@ -21,6 +22,6 @@ include("HMMDDM.jl")
 include("Utilities.jl")
 include("eDDM.jl")
 
-export DriftDiffusionModel, DDMResult, rand, logdensityof, fit!, crossvalidate, PriorHMM, simulateDDM, wfpt, randomDDM, logistic
+export DriftDiffusionModel, DDMResult, rand, logdensityof, fit!, crossvalidate, PriorHMM, simulateDDM, wfpt, randomDDM, logistic, fit_vi_gaussian
 
 end

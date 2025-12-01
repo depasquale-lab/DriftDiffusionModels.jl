@@ -79,7 +79,11 @@ function wfpt(t::Real, v::Real, B::Real, w::Real, τ::Real, err::Real=1e-8)
         p /= sqrt(2 * π * tt^3)  # add constant term
     else  # if large t is better...
         kl = min(kl, Kcap)  # cap kappa to avoid long loops
-        K = ceil(Int, kl)  # round to smallest integer meeting error
+        try
+            K = ceil(Int, kl)  # round to smallest integer meeting error
+        catch e
+            K = Kcap
+        end
         for k in 1:K
             p += k * exp(-(k^2) * (π^2) * tt / 2) * sin(k * π * w)  # increment sum
         end
