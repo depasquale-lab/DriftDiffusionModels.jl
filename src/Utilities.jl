@@ -168,3 +168,5 @@ See `init_hmm_ddm(rng, data, K; ...)` for keyword arguments.
 function init_hmm_ddm(data::Vector{DDMResult}, K::Int; kwargs...)
     init_hmm_ddm(Random.default_rng(), data, K; kwargs...)
 end
+
+logistic(x) = 1.0 / (1.0 + exp(-x))

@@ -18,7 +18,9 @@ import StatsAPI: fit!
 
 include("DDM.jl")
 include("HMMDDM.jl")
+include("Utilities.jl")
+include("eDDM.jl")
 
-export DriftDiffusionModel, DDMResult, rand, logdensityof, fit!, crossvalidate, PriorHMM, simulateDDM, wfpt, randomDDM
+export DriftDiffusionModel, DDMResult, rand, logdensityof, fit!, crossvalidate, PriorHMM, simulateDDM, wfpt, randomDDM, logistic
 
 end
