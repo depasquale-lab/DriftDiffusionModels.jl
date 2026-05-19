@@ -17,5 +17,8 @@ using DriftDiffusionModels
     @testset verbose=true "eDDM Tests" begin
         include("test_eDDM.jl")
     end
+    @testset verbose=true "NeuralDDM Tests" begin
+        include("test_NeuralDDM.jl")
+    end
 end
 

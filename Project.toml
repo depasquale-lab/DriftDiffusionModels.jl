@@ -4,6 +4,7 @@ version = "0.0.1"
 authors = "[Ryan Senne <rsenne@bu.edu>]"
 
 [deps]
+ADTypes = "47edcb42-4c32-4615-8424-f2b9edc5f35b"
 DensityInterface = "b429d917-457f-4dbc-8f4c-0cc954292b1d"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"

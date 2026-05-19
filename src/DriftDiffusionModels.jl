@@ -6,6 +6,7 @@ using Statistics
 using StatsAPI
 using Distributions
 using Optim
+using ADTypes: AutoForwardDiff
 using ForwardDiff
 using UnPack
 using DensityInterface
@@ -21,7 +22,8 @@ include("DDM.jl")
 include("HMMDDM.jl")
 include("Utilities.jl")
 include("eDDM.jl")
+include("NeuralDDM.jl")
 
-export DriftDiffusionModel, DDMResult, rand, logdensityof, fit!, crossvalidate, PriorHMM, simulateDDM, wfpt, randomDDM, logistic, fit_vi_gaussian
+export DriftDiffusionModel, DDMResult, rand, logdensityof, fit!, crossvalidate, PriorHMM, simulateDDM, wfpt, randomDDM, logistic, softplus, fit_vi_gaussian
 
 end
