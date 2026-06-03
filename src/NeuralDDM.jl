@@ -2,13 +2,15 @@ abstract type AbstractStateModel end
 abstract type AbstractObservationModel end
 
 mutable struct LeakyAccumulatorModel{T<:Real} <: AbstractStateModel
-    B::T # boundary
-    v::T # drift rate
-    λ::T # leak
+    B::T  # soft boundary location
+    v::T  # drift rate (scales stimulus input)
+    λ::T  # leak
     σ²::T # diffusion coefficient
     μ₀::T # initial mean
     Σ₀::T # initial variance
-    τ::T # non-decision time
+    τ::T  # non-decision time (kept for RT linking; not used in accumulator dynamics)
+    α::T  # boundary sharpness (logistic steepness)
+    γ::T  # choice logistic steepness: P(right | x_T) = logistic(γ · x_T)
 end
 
 function LeakyAccumulatorModel(;
@@ -19,10 +21,12 @@ function LeakyAccumulatorModel(;
     μ₀::Real=0.0,
     Σ₀::Real=0.0,
     τ::Real=1e-1,
+    α::Real=5.0,
+    γ::Real=5.0,
 )
     T = promote_type(typeof(B), typeof(v), typeof(λ), typeof(σ²),
-                     typeof(μ₀), typeof(Σ₀), typeof(τ))
-    return LeakyAccumulatorModel{T}(T(B), T(v), T(λ), T(σ²), T(μ₀), T(Σ₀), T(τ))
+                     typeof(μ₀), typeof(Σ₀), typeof(τ), typeof(α), typeof(γ))
+    return LeakyAccumulatorModel{T}(T(B), T(v), T(λ), T(σ²), T(μ₀), T(Σ₀), T(τ), T(α), T(γ))
 end
 
 mutable struct LinearPoissonObservationModel{T<:Real} <: AbstractObservationModel
@@ -202,7 +206,7 @@ end
 
 function _drive(obs::BasisPoissonObservationModel, n::Integer, φ::AbstractVector)
     η = zero(promote_type(eltype(obs.β), eltype(φ)))
-    @inbounds for k in eachindex(φ)
+    for k in eachindex(φ)
         η += obs.β[k, n] * φ[k]
     end
     return η
@@ -232,12 +236,236 @@ function obs_logpdf(obs::BasisPoissonObservationModel, y::AbstractVector{<:Integ
     return ll
 end
 
-# GP: not implemented — struct needs variational q(u) fields before a likelihood is defined
+# GP: not implemented, struct needs variational q(u) fields before a likelihood is defined
 function obs_sample(::AbstractRNG, ::GPPoissonObservationModel, ::Real, ::Real)
     error("obs_sample for GPPoissonObservationModel is not implemented yet — the struct needs inducing values q(u) before sampling can be defined.")
 end
 
 function obs_logpdf(::GPPoissonObservationModel, ::AbstractVector{<:Integer}, ::Real, ::Real)
     error("obs_logpdf for GPPoissonObservationModel is not implemented yet — the struct needs inducing values q(u) before a likelihood is defined.")
+end
+
+# P(right | x_T) = logistic(γ · x_T); choice ∈ {+1 (right), -1 (left)}
+function choice_logpdf(model::LeakyAccumulatorModel, x::Real, choice::Integer)
+    p_right = logistic(model.γ * x)
+    return choice == 1 ? log(p_right) : log1p(-p_right)
+end
+
+function choice_logpdf(model::NeuralDDM, x::Real, choice::Integer)
+    return choice_logpdf(model.state, x, choice)
+end
+
+"""
+    Trial{T<:Real}
+
+A single trialized observation for the NeuralDDM.
+
+Fields:
+- `spikes`  : `n_time × n_neurons` integer matrix of spike counts per bin
+- `u`       : `n_time` stimulus trace, values ∈ {-1, 0, +1}
+- `choice`  : observed choice, +1 (rightward) or -1 (leftward)
+- `dt`      : bin width in seconds
+
+`n_time` is the number of bins up to and including the stopping bin, so
+`RT ≈ n_time * dt`. The last bin is treated as the stopping event.
+"""
+struct Trial{T<:Real}
+    spikes::Matrix{Int}   # n_time × n_neurons
+    u::Vector{T}          # n_time stimulus values ∈ {-1, 0, +1}
+    choice::Int           # +1 right, -1 left
+    dt::T
+
+    function Trial(spikes::Matrix{<:Integer}, u::AbstractVector{<:Real},
+                   choice::Integer, dt::Real)
+        n_time = size(spikes, 1)
+        length(u) == n_time || throw(ArgumentError(
+            "u length ($(length(u))) must equal number of time bins ($(n_time))"))
+        choice ∈ (1, -1) || throw(ArgumentError("choice must be +1 or -1"))
+        dt > 0 || throw(ArgumentError("dt must be positive"))
+        T = typeof(float(dt))
+        new{T}(Matrix{Int}(spikes), collect(T, u), Int(choice), T(dt))
+    end
+end
+
+n_time(trial::Trial)    = size(trial.spikes, 1)
+n_neurons(trial::Trial) = size(trial.spikes, 2)
+
+"""
+    particle_filter(rng, model, trial; N=512, resample_threshold=0.5)
+
+Run a bootstrap particle filter for a single `Trial` under `model`.
+
+Returns the log marginal likelihood estimate: log p(spikes, RT, choice | model).
+
+The soft boundary hazard contributes at every timestep; at the final bin
+the stopping event and choice are additionally scored. The accumulator
+continues running regardless of the hazard (soft boundary — particles never die).
+
+Resampling uses systematic resampling when ESS < `resample_threshold * N`.
+"""
+function particle_filter(
+    rng::AbstractRNG,
+    model::NeuralDDM,
+    trial::Trial;
+    N::Integer=512,
+    resample_threshold::Real=0.5,
+)
+    T_bins   = n_time(trial)
+    log_ml   = 0.0                       # accumulated log marginal likelihood
+    particles = [init_sample(rng, model) for _ in 1:N]
+    log_w    = zeros(Float64, N)         # log unnormalized weights
+
+    for t in 1:T_bins
+        u_t  = trial.u[t]
+        y_t  = @view trial.spikes[t, :]
+        stopped = (t == T_bins)
+
+        # Propagate each particle through the transition
+        for i in 1:N
+            particles[i] = transition_sample(rng, model, particles[i], u_t, trial.dt)
+        end
+
+        # Weight update: observation + soft-boundary stop/continue
+        for i in 1:N
+            x_i = particles[i]
+            log_w[i] += obs_logpdf(model, y_t, x_i, trial.dt)
+            log_w[i] += stop_logpdf(model, x_i, stopped, model.state.α)
+            if stopped
+                log_w[i] += choice_logpdf(model, x_i, trial.choice)
+            end
+        end
+
+        # Normalise: accumulate log marginal likelihood increment
+        lse       = logsumexp(log_w)
+        log_ml   += lse - log(N)
+        log_w   .-= lse               # now log_w are log normalized weights
+
+        # Systematic resampling when ESS drops below threshold
+        ess = exp(-logsumexp(2 .* log_w))
+        if ess < resample_threshold * N
+            indices = _systematic_resample(rng, log_w, N)
+            particles = particles[indices]
+            fill!(log_w, 0.0)
+        end
+    end
+
+    return log_ml
+end
+
+# Systematic resampling given log normalized weights; returns N indices.
+function _systematic_resample(rng::AbstractRNG, log_w::Vector{Float64}, N::Integer)
+    w = exp.(log_w)
+    w ./= sum(w)                       # ensure exact normalization
+    cumw = cumsum(w)
+    u0   = rand(rng) / N
+    indices = Vector{Int}(undef, N)
+    j = 1
+    for i in 1:N
+        u_i = u0 + (i - 1) / N
+        while j < N && cumw[j] < u_i
+            j += 1
+        end
+        indices[i] = j
+    end
+    return indices
+end
+
+"""
+    log_marginal_likelihood(rng, model, trials; N=512, resample_threshold=0.5)
+
+Sum the per-trial log marginal likelihoods across all `trials`.
+Trials are processed in parallel across threads when available.
+"""
+function log_marginal_likelihood(
+    rng::AbstractRNG,
+    model::NeuralDDM,
+    trials::Vector{<:Trial};
+    N::Integer=512,
+    resample_threshold::Real=0.5,
+)
+    n_trials = length(trials)
+    lmls = Vector{Float64}(undef, n_trials)
+    # Each thread needs its own RNG to avoid data races
+    rngs = [deepcopy(rng) for _ in 1:Threads.nthreads()]
+    @batch for k in 1:n_trials
+        lmls[k] = particle_filter(
+            rngs[Threads.threadid()], model, trials[k];
+            N=N, resample_threshold=resample_threshold,
+        )
+    end
+    return sum(lmls)
+end
+
+"""
+    fit!(model, trials; N=512, resample_threshold=0.5, rng=Random.default_rng(), optim_options=Optim.Options())
+
+Fit the `NeuralDDM` parameters to `trials` by maximizing the particle-filter
+marginal likelihood using Nelder-Mead.
+
+Optimizes over accumulator parameters `(B, v, λ, σ², α, γ)` and,
+for `LinearPoissonObservationModel`, `(b, w)`.
+
+Returns the fitted `model` (modified in place) and the `Optim.jl` result.
+"""
+function fit!(
+    model::NeuralDDM,
+    trials::Vector{<:Trial};
+    N::Integer=512,
+    resample_threshold::Real=0.5,
+    rng::AbstractRNG=Random.default_rng(),
+    optim_options::Optim.Options=Optim.Options(show_trace=true, iterations=500),
+)
+    # Pack parameters into a vector and back
+    θ0, pack! = _make_param_io(model)
+
+    obj = θ -> begin
+        pack!(model, θ)
+        -log_marginal_likelihood(rng, model, trials; N=N, resample_threshold=resample_threshold)
+    end
+
+    result = optimize(obj, θ0, NelderMead(), optim_options)
+    pack!(model, Optim.minimizer(result))
+    return model, result
+end
+
+# Parameter packing for LeakyAccumulatorModel + LinearPoissonObservationModel
+function _make_param_io(model::NeuralDDM{<:LeakyAccumulatorModel, <:LinearPoissonObservationModel})
+    s = model.state
+    o = model.obs
+    θ0 = vcat([s.B, s.v, s.λ, s.σ², s.α, s.γ], o.b, o.w)
+
+    function pack!(m::NeuralDDM, θ::AbstractVector)
+        m.state.B  = θ[1]
+        m.state.v  = θ[2]
+        m.state.λ  = θ[3]
+        m.state.σ² = θ[4]
+        m.state.α  = θ[5]
+        m.state.γ  = θ[6]
+        N = length(m.obs.b)
+        m.obs.b .= θ[7:6+N]
+        m.obs.w .= θ[7+N:6+2N]
+    end
+
+    return θ0, pack!
+end
+
+# Parameter packing for LeakyAccumulatorModel + BasisPoissonObservationModel
+function _make_param_io(model::NeuralDDM{<:LeakyAccumulatorModel, <:BasisPoissonObservationModel})
+    s = model.state
+    o = model.obs
+    θ0 = vcat([s.B, s.v, s.λ, s.σ², s.α, s.γ], vec(o.β))
+
+    function pack!(m::NeuralDDM, θ::AbstractVector)
+        m.state.B  = θ[1]
+        m.state.v  = θ[2]
+        m.state.λ  = θ[3]
+        m.state.σ² = θ[4]
+        m.state.α  = θ[5]
+        m.state.γ  = θ[6]
+        KN = length(m.obs.β)
+        m.obs.β .= reshape(θ[7:6+KN], size(m.obs.β))
+    end
+
+    return θ0, pack!
 end
 

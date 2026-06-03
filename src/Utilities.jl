@@ -173,3 +173,9 @@ logistic(x) = 1.0 / (1.0 + exp(-x))
 
 # Numerically stable softplus: log(1 + exp(x))
 softplus(x) = x > 0 ? x + log1p(exp(-x)) : log1p(exp(x))
+
+# Numerically stable logsumexp
+function logsumexp(xs::AbstractVector{<:Real})
+    m = maximum(xs)
+    return m + log(sum(exp(x - m) for x in xs))
+end

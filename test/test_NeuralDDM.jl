@@ -3,9 +3,11 @@ using DriftDiffusionModels: LeakyAccumulatorModel, LinearPoissonObservationModel
                             NeuralDDM, AbstractStateModel, AbstractObservationModel,
                             init_sample, init_logpdf,
                             transition_sample, transition_logpdf,
-                            hazard, stop_logpdf,
+                            hazard, stop_logpdf, choice_logpdf,
                             obs_sample, obs_logpdf,
-                            softplus
+                            Trial, n_time, n_neurons,
+                            particle_filter, log_marginal_likelihood,
+                            softplus, logsumexp
 using Random: MersenneTwister
 using Statistics: mean, var
 using Distributions: Poisson, logpdf
@@ -21,10 +23,12 @@ using Distributions: Poisson, logpdf
     @test m.μ₀ == 0.0
     @test m.Σ₀ == 0.0
     @test m.τ == 1e-1
+    @test m.α == 5.0
+    @test m.γ == 5.0
 end
 
 @testset "LeakyAccumulatorModel - keyword constructor" begin
-    m = LeakyAccumulatorModel(B=2.5, v=0.8, λ=0.3, σ²=1.5, μ₀=0.1, Σ₀=0.05, τ=0.2)
+    m = LeakyAccumulatorModel(B=2.5, v=0.8, λ=0.3, σ²=1.5, μ₀=0.1, Σ₀=0.05, τ=0.2, α=3.0, γ=4.0)
     @test m.B == 2.5
     @test m.v == 0.8
     @test m.λ == 0.3
@@ -32,28 +36,32 @@ end
     @test m.μ₀ == 0.1
     @test m.Σ₀ == 0.05
     @test m.τ == 0.2
+    @test m.α == 3.0
+    @test m.γ == 4.0
 end
 
 @testset "LeakyAccumulatorModel - type promotion" begin
     # Mixed Int and Float should promote to Float64
-    m = LeakyAccumulatorModel(B=1, v=1.0, λ=0, σ²=1, μ₀=0, Σ₀=0, τ=1//10)
+    m = LeakyAccumulatorModel(B=1, v=1.0, λ=0, σ²=1, μ₀=0, Σ₀=0, τ=1//10, α=5, γ=5)
     @test m isa LeakyAccumulatorModel{Float64}
 
     # All Float32 stays Float32
     m32 = LeakyAccumulatorModel(B=1.0f0, v=1.0f0, λ=0.0f0, σ²=1.0f0,
-                                μ₀=0.0f0, Σ₀=0.0f0, τ=0.1f0)
+                                μ₀=0.0f0, Σ₀=0.0f0, τ=0.1f0, α=5.0f0, γ=5.0f0)
     @test m32 isa LeakyAccumulatorModel{Float32}
 end
 
 @testset "LeakyAccumulatorModel - positional constructor still works" begin
-    m = LeakyAccumulatorModel{Float64}(1.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.1)
-    @test m.B == 1.0 && m.τ == 0.1
+    m = LeakyAccumulatorModel{Float64}(1.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.1, 5.0, 5.0)
+    @test m.B == 1.0 && m.τ == 0.1 && m.α == 5.0 && m.γ == 5.0
 end
 
 @testset "LeakyAccumulatorModel - mutability" begin
     m = LeakyAccumulatorModel()
     m.B = 3.0
+    m.α = 10.0
     @test m.B == 3.0
+    @test m.α == 10.0
 end
 
 @testset "LinearPoissonObservationModel - N constructor" begin
@@ -408,4 +416,102 @@ end
     # logpdf forwards
     y = [1, 0]
     @test obs_logpdf(m, y, 0.3, 0.01) ≈ obs_logpdf(obs, y, 0.3, 0.01)
+end
+
+# === choice_logpdf ===
+
+@testset "choice_logpdf - at x=0, each choice has probability 0.5" begin
+    m = LeakyAccumulatorModel(γ=5.0)
+    @test exp(choice_logpdf(m, 0.0, 1))  ≈ 0.5
+    @test exp(choice_logpdf(m, 0.0, -1)) ≈ 0.5
+end
+
+@testset "choice_logpdf - probabilities sum to 1" begin
+    m = LeakyAccumulatorModel(γ=3.0)
+    for x in (-2.0, -0.5, 0.0, 0.8, 2.0)
+        @test exp(choice_logpdf(m, x, 1)) + exp(choice_logpdf(m, x, -1)) ≈ 1.0
+    end
+end
+
+@testset "choice_logpdf - positive x favours right" begin
+    m = LeakyAccumulatorModel(γ=5.0)
+    @test choice_logpdf(m, 1.0, 1) > choice_logpdf(m, 1.0, -1)
+end
+
+@testset "choice_logpdf - NeuralDDM forwards to state" begin
+    state = LeakyAccumulatorModel(γ=4.0)
+    model = NeuralDDM(state=state)
+    x = 0.7
+    @test choice_logpdf(model, x, 1)  ≈ choice_logpdf(state, x, 1)
+    @test choice_logpdf(model, x, -1) ≈ choice_logpdf(state, x, -1)
+end
+
+# === Trial ===
+
+@testset "Trial - basic construction" begin
+    spikes = [1 0; 0 2; 1 1]   # 3 bins × 2 neurons
+    u      = [-1.0, 0.0, 1.0]
+    t = Trial(spikes, u, 1, 0.01)
+    @test t isa Trial{Float64}
+    @test n_time(t)    == 3
+    @test n_neurons(t) == 2
+    @test t.choice == 1
+    @test t.dt ≈ 0.01
+end
+
+@testset "Trial - choice -1 is valid" begin
+    t = Trial(ones(Int, 5, 3), zeros(5), -1, 0.02)
+    @test t.choice == -1
+end
+
+@testset "Trial - u length mismatch throws" begin
+    @test_throws ArgumentError Trial(ones(Int, 4, 2), zeros(3), 1, 0.01)
+end
+
+@testset "Trial - invalid choice throws" begin
+    @test_throws ArgumentError Trial(ones(Int, 3, 2), zeros(3), 0, 0.01)
+end
+
+@testset "Trial - negative dt throws" begin
+    @test_throws ArgumentError Trial(ones(Int, 3, 2), zeros(3), 1, -0.01)
+end
+
+# === particle_filter ===
+
+@testset "particle_filter - returns finite scalar" begin
+    rng   = MersenneTwister(42)
+    state = LeakyAccumulatorModel(B=1.5, v=1.0, λ=0.1, σ²=0.5, α=5.0, γ=5.0)
+    obs   = LinearPoissonObservationModel(b=[0.0, 0.0], w=[1.0, 0.5])
+    model = NeuralDDM(state=state, obs=obs)
+
+    spikes = rand(MersenneTwister(1), 0:2, 20, 2)
+    u      = rand(MersenneTwister(2), [-1.0, 0.0, 1.0], 20)
+    trial  = Trial(spikes, u, 1, 0.01)
+
+    lml = particle_filter(rng, model, trial; N=256)
+    @test isfinite(lml)
+    @test lml < 0.0   # log probability must be negative
+end
+
+@testset "particle_filter - reproducible with same seed" begin
+    state = LeakyAccumulatorModel(α=5.0, γ=5.0)
+    obs   = LinearPoissonObservationModel(1)
+    model = NeuralDDM(state=state, obs=obs)
+    trial = Trial(zeros(Int, 10, 1), zeros(10), 1, 0.01)
+
+    lml_a = particle_filter(MersenneTwister(7), model, trial; N=128)
+    lml_b = particle_filter(MersenneTwister(7), model, trial; N=128)
+    @test lml_a ≈ lml_b
+end
+
+@testset "log_marginal_likelihood - sums over trials" begin
+    rng   = MersenneTwister(0)
+    state = LeakyAccumulatorModel(α=5.0, γ=5.0)
+    obs   = LinearPoissonObservationModel(1)
+    model = NeuralDDM(state=state, obs=obs)
+
+    trials = [Trial(zeros(Int, 5, 1), zeros(5), 1, 0.01) for _ in 1:4]
+    lml = log_marginal_likelihood(rng, model, trials; N=128)
+    @test isfinite(lml)
+    @test lml < 0.0
 end
