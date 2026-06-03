@@ -1,5 +1,6 @@
 using Test
 using Random
+using Statistics
 using FiniteDiff
 using ForwardDiff
 using DriftDiffusionModels
@@ -16,6 +17,9 @@ using DriftDiffusionModels
     end
     @testset verbose=true "eDDM Tests" begin
         include("test_eDDM.jl")
+    end
+    @testset verbose=true "CoherentDDM Tests" begin
+        include("test_coherent_ddm.jl")
     end
 end
 

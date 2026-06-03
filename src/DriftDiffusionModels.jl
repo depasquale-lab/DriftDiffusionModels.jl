@@ -21,7 +21,9 @@ include("DDM.jl")
 include("HMMDDM.jl")
 include("Utilities.jl")
 include("eDDM.jl")
+include("CoherentDDM.jl")
 
-export DriftDiffusionModel, DDMResult, rand, logdensityof, fit!, crossvalidate, PriorHMM, simulateDDM, wfpt, randomDDM, logistic, fit_vi_gaussian
+export DriftDiffusionModel, DDMResult, rand, logdensityof, fit!, crossvalidate, PriorHMM, simulateDDM, wfpt, randomDDM, logistic, fit_vi_gaussian,
+       CoherentDDM, CoherentDDMResult
 
 end
