@@ -24,17 +24,33 @@ include("HMMDDM.jl")
 include("Utilities.jl")
 include("eDDM.jl")
 include("NeuralDDM.jl")
+include("NeuralDDMFit.jl")
 
-export DriftDiffusionModel, DDMResult, rand, logdensityof, fit!, crossvalidate, PriorHMM, simulateDDM, wfpt, randomDDM, logistic, softplus, logsumexp, fit_vi_gaussian
+export DriftDiffusionModel,
+    DDMResult,
+    rand,
+    logdensityof,
+    fit!,
+    crossvalidate,
+    PriorHMM,
+    simulateDDM,
+    wfpt,
+    randomDDM,
+    logistic,
+    softplus,
+    logsumexp,
+    fit_vi_gaussian
 
 # NeuralDDM exports
 export AbstractStateModel, AbstractObservationModel
 export LeakyAccumulatorModel
-export LinearPoissonObservationModel, BasisPoissonObservationModel, GPPoissonObservationModel
+export LinearPoissonObservationModel,
+    BasisPoissonObservationModel, GPPoissonObservationModel
 export NeuralDDM
 export init_sample, init_logpdf, transition_sample, transition_logpdf
 export hazard, stop_logpdf, obs_sample, obs_logpdf, choice_logpdf
 export Trial, n_time, n_neurons
 export particle_filter, log_marginal_likelihood
+export simulate_trial
 
 end

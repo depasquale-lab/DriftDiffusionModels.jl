@@ -7,10 +7,14 @@ using DriftDiffusionModels: LeakyAccumulatorModel, LinearPoissonObservationModel
                             obs_sample, obs_logpdf,
                             Trial, n_time, n_neurons,
                             particle_filter, log_marginal_likelihood,
+                            simulate_trial, fit!,
                             softplus, logsumexp
+import DriftDiffusionModels as DDM
 using Random: MersenneTwister
 using Statistics: mean, var
 using Distributions: Poisson, logpdf
+using ForwardDiff: gradient
+import Optim
 
 @testset "LeakyAccumulatorModel - default constructor" begin
     m = LeakyAccumulatorModel()
@@ -216,6 +220,14 @@ end
     expected = -log(2π * 2.0) / 2 - (x - 0.5)^2 / (2 * 2.0)
     @test init_logpdf(m, x) ≈ expected
     @test init_logpdf(NeuralDDM(state=m), x) ≈ expected
+end
+
+@testset "init_logpdf - degenerate Σ₀=0 is a point mass at μ₀" begin
+    m = LeakyAccumulatorModel(μ₀=0.3, Σ₀=0.0)
+    @test init_logpdf(m, 0.3) == Inf      # at the point mass
+    @test init_logpdf(m, 0.0) == -Inf     # everywhere else
+    # default model has Σ₀=0; must not return +Inf for arbitrary x
+    @test init_logpdf(LeakyAccumulatorModel(), 1.7) == -Inf
 end
 
 @testset "transition_sample - mean and variance" begin
@@ -514,4 +526,120 @@ end
     lml = log_marginal_likelihood(rng, model, trials; N=128)
     @test isfinite(lml)
     @test lml < 0.0
+end
+
+@testset "log_marginal_likelihood - reproducible with same seed (CRN)" begin
+    state = LeakyAccumulatorModel(B=1.5, v=1.0, λ=0.1, σ²=0.5, α=5.0, γ=5.0)
+    obs   = LinearPoissonObservationModel(b=[0.0, 0.0], w=[1.0, 0.5])
+    model = NeuralDDM(state=state, obs=obs)
+
+    trials = [Trial(rand(MersenneTwister(k), 0:2, 12, 2),
+                    rand(MersenneTwister(100 + k), [-1.0, 0.0, 1.0], 12), 1, 0.01)
+              for k in 1:6]
+
+    lml_a = log_marginal_likelihood(MersenneTwister(7), model, trials; N=128)
+    lml_b = log_marginal_likelihood(MersenneTwister(7), model, trials; N=128)
+    @test lml_a ≈ lml_b   # deterministic objective regardless of thread scheduling
+end
+
+# === simulate_trial ===
+
+@testset "simulate_trial - shapes, choice, truncation" begin
+    rng   = MersenneTwister(11)
+    state = LeakyAccumulatorModel(B=1.0, v=1.5, λ=0.1, σ²=0.5, α=6.0, γ=5.0)
+    obs   = LinearPoissonObservationModel(b=[1.0, 0.5, 0.0], w=[1.0, -0.5, 0.2])
+    model = NeuralDDM(state=state, obs=obs)
+    u = rand(rng, [-1.0, 0.0, 1.0], 40)
+
+    tr = simulate_trial(rng, model, u, 0.01; max_bins=40)
+    @test tr isa Trial
+    @test n_neurons(tr) == 3
+    @test 1 ≤ n_time(tr) ≤ 40
+    @test tr.choice ∈ (1, -1)
+    @test size(tr.spikes, 1) == n_time(tr)
+    @test length(tr.u) == n_time(tr)         # u truncated to stop bin
+    @test all(tr.spikes .>= 0)
+end
+
+@testset "simulate_trial - force-stops at max_bins when hazard never fires" begin
+    # B huge ⇒ hazard ≈ 0, so it should run to max_bins every time
+    rng   = MersenneTwister(3)
+    state = LeakyAccumulatorModel(B=1e6, v=0.0, λ=0.0, σ²=0.1, α=5.0, γ=5.0)
+    model = NeuralDDM(state=state, obs=LinearPoissonObservationModel(1))
+    tr = simulate_trial(rng, model, zeros(15), 0.01; max_bins=15)
+    @test n_time(tr) == 15
+end
+
+# === differentiable PF + gradient ===
+
+@testset "_pf_loglik - finite, negative, deterministic given noise" begin
+    state = LeakyAccumulatorModel(B=1.2, v=1.0, λ=0.1, σ²=0.5, α=5.0, γ=5.0)
+    obs   = LinearPoissonObservationModel(b=[0.5, 0.0], w=[1.0, 0.5])
+    model = NeuralDDM(state=state, obs=obs)
+    trial = simulate_trial(MersenneTwister(1), model,
+                           rand(MersenneTwister(2), [-1.0, 0.0, 1.0], 30), 0.01; max_bins=30)
+
+    noise = DDM._draw_pf_noise(MersenneTwister(5), 128, n_time(trial))
+    ll1 = DDM._pf_loglik(model, trial, noise...; resample_every=1)
+    ll2 = DDM._pf_loglik(model, trial, noise...; resample_every=1)
+    @test isfinite(ll1)
+    @test ll1 < 0.0
+    @test ll1 == ll2                       # deterministic given fixed noise
+end
+
+@testset "_pf_loglik - ForwardDiff gradient is finite and non-trivial" begin
+    state = LeakyAccumulatorModel(B=1.2, v=1.0, λ=0.1, σ²=0.5, α=5.0, γ=5.0)
+    obs   = LinearPoissonObservationModel(b=[0.5, 0.0], w=[1.0, 0.5])
+    model = NeuralDDM(state=state, obs=obs)
+    trials = [simulate_trial(MersenneTwister(k), model,
+                             rand(MersenneTwister(100+k), [-1.0, 0.0, 1.0], 25), 0.01; max_bins=25)
+              for k in 1:8]
+    noise = [DDM._draw_pf_noise(MersenneTwister(7), 96, n_time(tr)) for tr in trials]
+
+    θ0 = DDM._unconstrained_θ0(model)
+    f = θ -> begin
+        m = DDM._model_from_unconstrained(θ, model)
+        s = zero(eltype(θ))
+        for k in eachindex(trials)
+            s += DDM._pf_loglik(m, trials[k], noise[k]...; resample_every=1)
+        end
+        -s
+    end
+    g = gradient(f, θ0)
+    @test all(isfinite, g)
+    @test any(!iszero, g)                  # objective actually depends on θ
+end
+
+# === fit! :lbfgs — parameter recovery ===
+
+@testset "fit! :lbfgs improves fit and approaches truth" begin
+    truth = NeuralDDM(
+        state = LeakyAccumulatorModel(B=1.2, v=1.5, λ=0.2, σ²=0.5, α=6.0, γ=5.0),
+        obs   = LinearPoissonObservationModel(b=[1.0, 0.5], w=[1.2, -0.8]),
+    )
+    rng = MersenneTwister(2024)
+    trials = [simulate_trial(rng, truth, rand(rng, [-1.0, 0.0, 1.0], 30), 0.01; max_bins=30)
+              for _ in 1:60]
+
+    # objective helper at a given model, on a fixed noise realization
+    noise = [DDM._draw_pf_noise(MersenneTwister(123), 128, n_time(tr)) for tr in trials]
+    negll(m) = -sum(DDM._pf_loglik(m, trials[k], noise[k]...; resample_every=1)
+                    for k in eachindex(trials))
+
+    # start from a perturbed initialization
+    init = NeuralDDM(
+        state = LeakyAccumulatorModel(B=2.0, v=0.5, λ=0.0, σ²=1.0, α=4.0, γ=3.0),
+        obs   = LinearPoissonObservationModel(b=[0.0, 0.0], w=[0.5, 0.5]),
+    )
+    f_init  = negll(init)
+    f_truth = negll(truth)
+
+    fitted, result = fit!(init, trials; method=:lbfgs, N=128,
+                          rng=MersenneTwister(99),
+                          optim_options=Optim.Options(iterations=80))
+    f_fit = negll(fitted)
+
+    @test f_fit < f_init                       # optimizer improved the fit
+    @test f_fit ≤ f_truth + 0.05 * abs(f_truth)  # fits sample ≈ as well as / better than truth
+    @test sign(fitted.state.v) == sign(truth.state.v)  # drift direction recovered
 end

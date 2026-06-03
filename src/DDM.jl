@@ -11,11 +11,11 @@ mutable struct DriftDiffusionModel
 end
 
 function DriftDiffusionModel(;
-    B::Float64=5.0, #Bound Height
-    v::Float64=1.0, # Drift Rate
-    a₀::Float64=0.5, # Initial Accumulation
-    τ::Float64=1e-3, # Non-decision time
-) 
+    B::Float64 = 5.0, #Bound Height
+    v::Float64 = 1.0, # Drift Rate
+    a₀::Float64 = 0.5, # Initial Accumulation
+    τ::Float64 = 1e-3, # Non-decision time
+)
     return DriftDiffusionModel(B, v, a₀, τ)
 end
 
@@ -30,7 +30,7 @@ struct DDMResult
     s::Int # Stimulus (-1 or 1)
 end
 
-function DDMResult(;rt::Float64, choice::Int, s::Int)
+function DDMResult(; rt::Float64, choice::Int, s::Int)
     return DDMResult(rt, choice, s)
 end
 
@@ -42,15 +42,15 @@ with drift rate v, boundary separation B, starting point α₀, non-decision tim
 
 This implementation follows the algorithm described in Navarro & Fuss (2009).
 """
-function wfpt(t::Real, v::Real, B::Real, w::Real, τ::Real, err::Real=1e-8)
+function wfpt(t::Real, v::Real, B::Real, w::Real, τ::Real, err::Real = 1e-8)
     # Check for valid inputs
     if t <= τ
         return 0.0
     end
-    
+
     # Use normalized time and relative start point
     tt = (t - τ) / (B^2)
-    
+
     # Calculate number of terms needed for large t version
     if π * tt * err < 1  # if error threshold is set low enough
         kl = sqrt(-2 * log(π * tt * err) / (π^2 * tt))  # bound
@@ -58,7 +58,7 @@ function wfpt(t::Real, v::Real, B::Real, w::Real, τ::Real, err::Real=1e-8)
     else  # if error threshold set too high
         kl = 1 / (π * sqrt(tt))  # set to boundary condition
     end
-    
+
     # Calculate number of terms needed for small t version
     if 2 * sqrt(2 * π * tt) * err < 1  # if error threshold is set low enough
         ks = 2 + sqrt(-2 * tt * log(2 * sqrt(2 * π * tt) * err))  # bound
@@ -66,14 +66,14 @@ function wfpt(t::Real, v::Real, B::Real, w::Real, τ::Real, err::Real=1e-8)
     else  # if error threshold was set too high
         ks = 2  # minimal kappa for that case
     end
-    
+
     # Compute f(tt|0,1,w)
     Kcap = 1e6
     p = 0.0  # initialize density
     if ks < kl  # if small t is better...
         ks = min(ks, Kcap)  # cap kappa to avoid long loops
         K = ceil(Int, ks)  # round to smallest integer meeting error
-        for k in -floor(Int, (K-1)/2):ceil(Int, (K-1)/2)  # loop over k
+        for k = (-floor(Int, (K-1)/2)):ceil(Int, (K-1)/2)  # loop over k
             p += (w + 2 * k) * exp(-((w + 2 * k)^2) / 2 / tt)  # increment sum
         end
         p /= sqrt(2 * π * tt^3)  # add constant term
@@ -84,12 +84,12 @@ function wfpt(t::Real, v::Real, B::Real, w::Real, τ::Real, err::Real=1e-8)
         catch e
             K = Kcap
         end
-        for k in 1:K
+        for k = 1:K
             p += k * exp(-(k^2) * (π^2) * tt / 2) * sin(k * π * w)  # increment sum
         end
         p *= π  # add constant term
     end
-    
+
     # Convert to f(t|v,B,w)
     density = p * exp(-v * B * w - (v^2) * (t - τ) / 2) / (B^2)
     return max(density, 0.0)  # ensure non-negative density (occasionaly generates neg values e.g., -1e-21) (maybe return +ϵ instead?)
@@ -100,7 +100,11 @@ end
 
 Generate a single trial of a drift diffusion model using the Euler-Maruyama method.
 """
-function simulateDDM(model::DriftDiffusionModel, dt::Float64=1e-5, rng::AbstractRNG=Random.default_rng())
+function simulateDDM(
+    model::DriftDiffusionModel,
+    dt::Float64 = 1e-5,
+    rng::AbstractRNG = Random.default_rng(),
+)
     @unpack B, v, a₀, τ = model
 
     # generate a stimulus side randomly
@@ -133,9 +137,9 @@ end
 """
     simulateDDM(model::DriftDiffusionModel, n::Int, dt::Float64=1e-5)
 """
-function simulateDDM(model::DriftDiffusionModel, n::Int, dt::Float64=1e-5)
+function simulateDDM(model::DriftDiffusionModel, n::Int, dt::Float64 = 1e-5)
     results = Vector{DDMResult}(undef, n)
-    @threads for i in 1:n
+    @threads for i = 1:n
         results[i] = simulateDDM(model, dt)
     end
     return results
@@ -162,7 +166,7 @@ Calculate the loglikelihood of a drift diffusion model given a DDMResult.
 function DensityInterface.logdensityof(model::DriftDiffusionModel, x::DDMResult)
     @unpack B, v, a₀, τ = model
     @unpack rt, choice, s = x
-    
+
     return logdensityof(B, v, a₀, τ, rt, choice, s)
 end
 
@@ -173,9 +177,15 @@ Trial log-density given stimulus side s ∈ {-1,+1}.
 - choice: -1 = lower (Left), +1 = upper (Right)
 - s: +1 means "Right is correct", -1 means "Left is correct"
 """
-function logdensityof(B::TB, v::TV, a₀::TA, τ::TT,
-                      rt::Float64, choice::Int, s::Int
-) where {TB<:Real, TV<:Real, TA<:Real, TT<:Real}
+function logdensityof(
+    B::TB,
+    v::TV,
+    a₀::TA,
+    τ::TT,
+    rt::Float64,
+    choice::Int,
+    s::Int,
+) where {TB<:Real,TV<:Real,TA<:Real,TT<:Real}
     if rt <= 0
         return -Inf
     end
@@ -190,8 +200,8 @@ function logdensityof(B::TB, v::TV, a₀::TA, τ::TT,
 
     # wfpt is LOWER-boundary density. For upper responses, reflect:
     if choice == -1             # lower/Left
-        v_eff =  v_trial
-        w_eff =  a₀
+        v_eff = v_trial
+        w_eff = a₀
     else                        # upper/Right
         v_eff = -v_trial
         w_eff = 1 - a₀
@@ -210,42 +220,55 @@ end
 
 Perform parameter estimation of a drift diffusion model using MLE given a vector of DDM observtions. Takes an optional weights vector to support for use in an HMM.
 """
-function StatsAPI.fit!(model::DriftDiffusionModel, x::Vector{DDMResult}, w::AbstractVector{<:Real}=ones(length(x)))
+function StatsAPI.fit!(
+    model::DriftDiffusionModel,
+    x::Vector{DDMResult},
+    w::AbstractVector{<:Real} = ones(length(x)),
+)
     @unpack B, v, a₀, τ = model
-    
+
     # Define negative log-likelihood function for optimization
     function neg_log_likelihood(params)
         # We optimize B, drift rate, and a₀ as a fraction of B
         B_temp, v_temp, a₀_temp, τ_temp = params
-        
+
         # Early return for invalid boundary (must be positive)
         if B_temp < 0
             return convert(typeof(B_temp), Inf)
         end
-        
+
         # Calculate log-likelihood using the raw parameters version
         ll = 0.0
-        for i in 1:length(x)
-            ll += w[i] * logdensityof(B_temp, v_temp, a₀_temp, τ_temp, x[i].rt, x[i].choice, x[i].s)
+        for i = 1:length(x)
+            ll +=
+                w[i] *
+                logdensityof(B_temp, v_temp, a₀_temp, τ_temp, x[i].rt, x[i].choice, x[i].s)
         end
-        
+
         # Return negative since optimizers minimize
         return -ll
     end
-    
+
     # Set up optimization
     initial_params = [B, v, a₀, τ]
-    
+
     # Add bounds - a₀_frac must be between -1 and 1
     lower_bounds = [0.001, 0, 0, 1e-3]
     upper_bounds = [50.0, 10.0, 1.0, 5.0]
 
     # Optimize using L-BFGS-B to respect the bounds
-    result = optimize(neg_log_likelihood, lower_bounds, upper_bounds, initial_params, Fminbox(LBFGS(linesearch=Optim.LineSearches.BackTracking())), autodiff=AutoForwardDiff())
+    result = optimize(
+        neg_log_likelihood,
+        lower_bounds,
+        upper_bounds,
+        initial_params,
+        Fminbox(LBFGS(linesearch = Optim.LineSearches.BackTracking())),
+        autodiff = AutoForwardDiff(),
+    )
 
     # Extract the optimized parameters
     optimal_params = Optim.minimizer(result)
-    
+
     # Update the model with new parameter estimates
     model.B = optimal_params[1]
     model.v = optimal_params[2]
@@ -255,4 +278,4 @@ function StatsAPI.fit!(model::DriftDiffusionModel, x::Vector{DDMResult}, w::Abst
     return model
 end
 
-    
+

@@ -14,18 +14,27 @@ mutable struct LeakyAccumulatorModel{T<:Real} <: AbstractStateModel
 end
 
 function LeakyAccumulatorModel(;
-    B::Real=1.0,
-    v::Real=1.0,
-    λ::Real=0.0,
-    σ²::Real=1.0,
-    μ₀::Real=0.0,
-    Σ₀::Real=0.0,
-    τ::Real=1e-1,
-    α::Real=5.0,
-    γ::Real=5.0,
+    B::Real = 1.0,
+    v::Real = 1.0,
+    λ::Real = 0.0,
+    σ²::Real = 1.0,
+    μ₀::Real = 0.0,
+    Σ₀::Real = 0.0,
+    τ::Real = 1e-1,
+    α::Real = 5.0,
+    γ::Real = 5.0,
 )
-    T = promote_type(typeof(B), typeof(v), typeof(λ), typeof(σ²),
-                     typeof(μ₀), typeof(Σ₀), typeof(τ), typeof(α), typeof(γ))
+    T = promote_type(
+        typeof(B),
+        typeof(v),
+        typeof(λ),
+        typeof(σ²),
+        typeof(μ₀),
+        typeof(Σ₀),
+        typeof(τ),
+        typeof(α),
+        typeof(γ),
+    )
     return LeakyAccumulatorModel{T}(T(B), T(v), T(λ), T(σ²), T(μ₀), T(Σ₀), T(τ), T(α), T(γ))
 end
 
@@ -34,11 +43,14 @@ mutable struct LinearPoissonObservationModel{T<:Real} <: AbstractObservationMode
     w::Vector{T} # weights, one per neuron
 end
 
-function LinearPoissonObservationModel(N::Integer; T::Type{<:Real}=Float64)
+function LinearPoissonObservationModel(N::Integer; T::Type{<:Real} = Float64)
     return LinearPoissonObservationModel{T}(zeros(T, N), ones(T, N))
 end
 
-function LinearPoissonObservationModel(; b::AbstractVector{<:Real}, w::AbstractVector{<:Real})
+function LinearPoissonObservationModel(;
+    b::AbstractVector{<:Real},
+    w::AbstractVector{<:Real},
+)
     length(b) == length(w) || throw(ArgumentError("b and w must have the same length"))
     T = promote_type(eltype(b), eltype(w))
     return LinearPoissonObservationModel{T}(collect(T, b), collect(T, w))
@@ -52,16 +64,21 @@ mutable struct BasisPoissonObservationModel{T<:Real} <: AbstractObservationModel
 end
 
 function BasisPoissonObservationModel(
-    K::Integer, N::Integer;
-    centers::AbstractVector{<:Real}=K == 1 ? [0.0] : collect(range(-1.0, 1.0; length=K)),
-    widths::AbstractVector{<:Real}=fill(2.0 / max(K - 1, 1), K),
-    ρ::Real=1e-3,
-    T::Type{<:Real}=Float64,
+    K::Integer,
+    N::Integer;
+    centers::AbstractVector{<:Real} = K == 1 ? [0.0] :
+                                      collect(range(-1.0, 1.0; length = K)),
+    widths::AbstractVector{<:Real} = fill(2.0 / max(K - 1, 1), K),
+    ρ::Real = 1e-3,
+    T::Type{<:Real} = Float64,
 )
     length(centers) == K || throw(ArgumentError("length(centers) must equal K"))
-    length(widths)  == K || throw(ArgumentError("length(widths) must equal K"))
+    length(widths) == K || throw(ArgumentError("length(widths) must equal K"))
     return BasisPoissonObservationModel{T}(
-        zeros(T, K, N), collect(T, centers), collect(T, widths), T(ρ),
+        zeros(T, K, N),
+        collect(T, centers),
+        collect(T, widths),
+        T(ρ),
     )
 end
 
@@ -74,33 +91,30 @@ end
 
 function GPPoissonObservationModel(
     N::Integer;
-    inducing_points::AbstractVector{<:Real}=range(-1.0, 1.0; length=10),
-    lengthscale::Union{Real,AbstractVector{<:Real}}=1.0,
-    amplitude::Union{Real,AbstractVector{<:Real}}=1.0,
-    mean::Union{Real,AbstractVector{<:Real}}=0.0,
-    T::Type{<:Real}=Float64,
+    inducing_points::AbstractVector{<:Real} = range(-1.0, 1.0; length = 10),
+    lengthscale::Union{Real,AbstractVector{<:Real}} = 1.0,
+    amplitude::Union{Real,AbstractVector{<:Real}} = 1.0,
+    mean::Union{Real,AbstractVector{<:Real}} = 0.0,
+    T::Type{<:Real} = Float64,
 )
     _expand(x) = x isa AbstractVector ? collect(T, x) : fill(T(x), N)
     ls = _expand(lengthscale)
     amp = _expand(amplitude)
     μ = _expand(mean)
-    length(ls)  == N || throw(ArgumentError("lengthscale length must equal N"))
+    length(ls) == N || throw(ArgumentError("lengthscale length must equal N"))
     length(amp) == N || throw(ArgumentError("amplitude length must equal N"))
-    length(μ)   == N || throw(ArgumentError("mean length must equal N"))
+    length(μ) == N || throw(ArgumentError("mean length must equal N"))
     return GPPoissonObservationModel{T}(collect(T, inducing_points), ls, amp, μ)
 end
 
-mutable struct NeuralDDM{
-    S<:AbstractStateModel,
-    O<:AbstractObservationModel,
-}
+mutable struct NeuralDDM{S<:AbstractStateModel,O<:AbstractObservationModel}
     state::S
     obs::O
 end
 
 function NeuralDDM(;
-    state::AbstractStateModel=LeakyAccumulatorModel(),
-    obs::AbstractObservationModel=LinearPoissonObservationModel(1),
+    state::AbstractStateModel = LeakyAccumulatorModel(),
+    obs::AbstractObservationModel = LinearPoissonObservationModel(1),
 )
     return NeuralDDM(state, obs)
 end
@@ -118,14 +132,32 @@ function init_logpdf(model::NeuralDDM, x::Real)
 end
 
 function init_logpdf(model::LeakyAccumulatorModel, x::Real)
-    return -log(sqrt(model.Σ₀)) - log(2π) / 2 - (x - model.μ₀)^2 / (2 * model.Σ₀)
+    # Σ₀ = 0 is a degenerate point mass at μ₀ (matches init_sample): log-density
+    # is +Inf at x == μ₀ and -Inf elsewhere. Guard so the default model (Σ₀=0)
+    # doesn't produce -log(0) = +Inf for every x.
+    if iszero(model.Σ₀)
+        return x == model.μ₀ ? Inf : -Inf
+    end
+    return -log(model.Σ₀) / 2 - log(2π) / 2 - (x - model.μ₀)^2 / (2 * model.Σ₀)
 end
 
-function transition_sample(rng::AbstractRNG, model::NeuralDDM, x_prev::Real, u::Real, dt::Real)
+function transition_sample(
+    rng::AbstractRNG,
+    model::NeuralDDM,
+    x_prev::Real,
+    u::Real,
+    dt::Real,
+)
     return transition_sample(rng, model.state, x_prev, u, dt)
 end
 
-function transition_sample(rng::AbstractRNG, model::LeakyAccumulatorModel, x_prev::Real, u::Real, dt::Real)
+function transition_sample(
+    rng::AbstractRNG,
+    model::LeakyAccumulatorModel,
+    x_prev::Real,
+    u::Real,
+    dt::Real,
+)
     μ = x_prev + (-model.λ * x_prev + model.v * u) * dt
     σ = sqrt(model.σ² * dt)
     return μ + σ * randn(rng)
@@ -135,7 +167,13 @@ function transition_logpdf(model::NeuralDDM, x::Real, x_prev::Real, u::Real, dt:
     return transition_logpdf(model.state, x, x_prev, u, dt)
 end
 
-function transition_logpdf(model::LeakyAccumulatorModel, x::Real, x_prev::Real, u::Real, dt::Real)
+function transition_logpdf(
+    model::LeakyAccumulatorModel,
+    x::Real,
+    x_prev::Real,
+    u::Real,
+    dt::Real,
+)
     μ = x_prev + (-model.λ * x_prev + model.v * u) * dt
     var = model.σ² * dt
     return -log(2π * var) / 2 - (x - μ)^2 / (2 * var)
@@ -175,15 +213,21 @@ end
 function obs_sample(rng::AbstractRNG, obs::LinearPoissonObservationModel, x::Real, dt::Real)
     N = length(obs.b)
     counts = Vector{Int}(undef, N)
-    for n in 1:N
+    for n = 1:N
         μ = softplus(_drive(obs, x, n)) * dt
         counts[n] = rand(rng, Poisson(μ))
     end
     return counts
 end
 
-function obs_logpdf(obs::LinearPoissonObservationModel, y::AbstractVector{<:Integer}, x::Real, dt::Real)
-    length(y) == length(obs.b) || throw(ArgumentError("y length must match number of neurons"))
+function obs_logpdf(
+    obs::LinearPoissonObservationModel,
+    y::AbstractVector{<:Integer},
+    x::Real,
+    dt::Real,
+)
+    length(y) == length(obs.b) ||
+        throw(ArgumentError("y length must match number of neurons"))
     T = promote_type(eltype(obs.b), eltype(obs.w), typeof(x), typeof(dt))
     ll = zero(T)
     for n in eachindex(obs.b)
@@ -198,7 +242,7 @@ function _basis_features(obs::BasisPoissonObservationModel, x::Real)
     K = length(obs.centers)
     R = promote_type(eltype(obs.centers), eltype(obs.widths), typeof(x))
     φ = Vector{R}(undef, K)
-    for k in 1:K
+    for k = 1:K
         φ[k] = exp(-(x - obs.centers[k])^2 / (2 * obs.widths[k]^2))
     end
     return φ
@@ -216,20 +260,25 @@ function obs_sample(rng::AbstractRNG, obs::BasisPoissonObservationModel, x::Real
     N = size(obs.β, 2)
     φ = _basis_features(obs, x)
     counts = Vector{Int}(undef, N)
-    for n in 1:N
+    for n = 1:N
         μ = softplus(_drive(obs, n, φ)) * dt
         counts[n] = rand(rng, Poisson(μ))
     end
     return counts
 end
 
-function obs_logpdf(obs::BasisPoissonObservationModel, y::AbstractVector{<:Integer}, x::Real, dt::Real)
+function obs_logpdf(
+    obs::BasisPoissonObservationModel,
+    y::AbstractVector{<:Integer},
+    x::Real,
+    dt::Real,
+)
     N = size(obs.β, 2)
     length(y) == N || throw(ArgumentError("y length must match number of neurons"))
     φ = _basis_features(obs, x)
     T = promote_type(eltype(obs.β), eltype(φ), typeof(dt))
     ll = zero(T)
-    for n in 1:N
+    for n = 1:N
         μ = softplus(_drive(obs, n, φ)) * dt
         ll += (y[n] == 0 ? zero(μ) : y[n] * log(μ)) - μ - loggamma(y[n] + 1)
     end
@@ -238,11 +287,20 @@ end
 
 # GP: not implemented, struct needs variational q(u) fields before a likelihood is defined
 function obs_sample(::AbstractRNG, ::GPPoissonObservationModel, ::Real, ::Real)
-    error("obs_sample for GPPoissonObservationModel is not implemented yet — the struct needs inducing values q(u) before sampling can be defined.")
+    error(
+        "obs_sample for GPPoissonObservationModel is not implemented yet — the struct needs inducing values q(u) before sampling can be defined.",
+    )
 end
 
-function obs_logpdf(::GPPoissonObservationModel, ::AbstractVector{<:Integer}, ::Real, ::Real)
-    error("obs_logpdf for GPPoissonObservationModel is not implemented yet — the struct needs inducing values q(u) before a likelihood is defined.")
+function obs_logpdf(
+    ::GPPoissonObservationModel,
+    ::AbstractVector{<:Integer},
+    ::Real,
+    ::Real,
+)
+    error(
+        "obs_logpdf for GPPoissonObservationModel is not implemented yet — the struct needs inducing values q(u) before a likelihood is defined.",
+    )
 end
 
 # P(right | x_T) = logistic(γ · x_T); choice ∈ {+1 (right), -1 (left)}
@@ -275,11 +333,18 @@ struct Trial{T<:Real}
     choice::Int           # +1 right, -1 left
     dt::T
 
-    function Trial(spikes::Matrix{<:Integer}, u::AbstractVector{<:Real},
-                   choice::Integer, dt::Real)
+    function Trial(
+        spikes::Matrix{<:Integer},
+        u::AbstractVector{<:Real},
+        choice::Integer,
+        dt::Real,
+    )
         n_time = size(spikes, 1)
-        length(u) == n_time || throw(ArgumentError(
-            "u length ($(length(u))) must equal number of time bins ($(n_time))"))
+        length(u) == n_time || throw(
+            ArgumentError(
+                "u length ($(length(u))) must equal number of time bins ($(n_time))",
+            ),
+        )
         choice ∈ (1, -1) || throw(ArgumentError("choice must be +1 or -1"))
         dt > 0 || throw(ArgumentError("dt must be positive"))
         T = typeof(float(dt))
@@ -287,7 +352,7 @@ struct Trial{T<:Real}
     end
 end
 
-n_time(trial::Trial)    = size(trial.spikes, 1)
+n_time(trial::Trial) = size(trial.spikes, 1)
 n_neurons(trial::Trial) = size(trial.spikes, 2)
 
 """
@@ -307,26 +372,26 @@ function particle_filter(
     rng::AbstractRNG,
     model::NeuralDDM,
     trial::Trial;
-    N::Integer=512,
-    resample_threshold::Real=0.5,
+    N::Integer = 512,
+    resample_threshold::Real = 0.5,
 )
-    T_bins   = n_time(trial)
-    log_ml   = 0.0                       # accumulated log marginal likelihood
-    particles = [init_sample(rng, model) for _ in 1:N]
-    log_w    = zeros(Float64, N)         # log unnormalized weights
+    T_bins = n_time(trial)
+    log_ml = 0.0                       # accumulated log marginal likelihood
+    particles = [init_sample(rng, model) for _ = 1:N]
+    log_w = zeros(Float64, N)         # log unnormalized weights
 
-    for t in 1:T_bins
-        u_t  = trial.u[t]
-        y_t  = @view trial.spikes[t, :]
+    for t = 1:T_bins
+        u_t = trial.u[t]
+        y_t = @view trial.spikes[t, :]
         stopped = (t == T_bins)
 
         # Propagate each particle through the transition
-        for i in 1:N
+        for i = 1:N
             particles[i] = transition_sample(rng, model, particles[i], u_t, trial.dt)
         end
 
         # Weight update: observation + soft-boundary stop/continue
-        for i in 1:N
+        for i = 1:N
             x_i = particles[i]
             log_w[i] += obs_logpdf(model, y_t, x_i, trial.dt)
             log_w[i] += stop_logpdf(model, x_i, stopped, model.state.α)
@@ -336,9 +401,9 @@ function particle_filter(
         end
 
         # Normalise: accumulate log marginal likelihood increment
-        lse       = logsumexp(log_w)
-        log_ml   += lse - log(N)
-        log_w   .-= lse               # now log_w are log normalized weights
+        lse = logsumexp(log_w)
+        log_ml += lse - log(N)
+        log_w .-= lse               # now log_w are log normalized weights
 
         # Systematic resampling when ESS drops below threshold
         ess = exp(-logsumexp(2 .* log_w))
@@ -357,10 +422,10 @@ function _systematic_resample(rng::AbstractRNG, log_w::Vector{Float64}, N::Integ
     w = exp.(log_w)
     w ./= sum(w)                       # ensure exact normalization
     cumw = cumsum(w)
-    u0   = rand(rng) / N
+    u0 = rand(rng) / N
     indices = Vector{Int}(undef, N)
     j = 1
-    for i in 1:N
+    for i = 1:N
         u_i = u0 + (i - 1) / N
         while j < N && cumw[j] < u_i
             j += 1
@@ -380,48 +445,52 @@ function log_marginal_likelihood(
     rng::AbstractRNG,
     model::NeuralDDM,
     trials::Vector{<:Trial};
-    N::Integer=512,
-    resample_threshold::Real=0.5,
+    N::Integer = 512,
+    resample_threshold::Real = 0.5,
 )
     n_trials = length(trials)
     lmls = Vector{Float64}(undef, n_trials)
-    # Each thread needs its own RNG to avoid data races
-    rngs = [deepcopy(rng) for _ in 1:Threads.nthreads()]
-    @batch for k in 1:n_trials
+    seeds = rand(rng, UInt64, n_trials)
+    @batch for k = 1:n_trials
+        trial_rng = copy(rng)          # type-preserving; copy(TaskLocalRNG) snapshots to Xoshiro
+        Random.seed!(trial_rng, seeds[k])
         lmls[k] = particle_filter(
-            rngs[Threads.threadid()], model, trials[k];
-            N=N, resample_threshold=resample_threshold,
+            trial_rng,
+            model,
+            trials[k];
+            N = N,
+            resample_threshold = resample_threshold,
         )
     end
     return sum(lmls)
 end
 
-"""
-    fit!(model, trials; N=512, resample_threshold=0.5, rng=Random.default_rng(), optim_options=Optim.Options())
-
-Fit the `NeuralDDM` parameters to `trials` by maximizing the particle-filter
-marginal likelihood using Nelder-Mead.
-
-Optimizes over accumulator parameters `(B, v, λ, σ², α, γ)` and,
-for `LinearPoissonObservationModel`, `(b, w)`.
-
-Returns the fitted `model` (modified in place) and the `Optim.jl` result.
-"""
-function fit!(
+# Nelder-Mead fit on the (stochastic, CRN) particle-filter marginal likelihood.
+# Gradient-free; optimizes raw parameters, so it can wander into σ²<0 etc. Kept
+# as the `method=:neldermead` option of `fit!`; see NeuralDDMFit.jl for the
+# default gradient-based (`:lbfgs`) path.
+function _fit_neldermead!(
     model::NeuralDDM,
     trials::Vector{<:Trial};
-    N::Integer=512,
-    resample_threshold::Real=0.5,
-    rng::AbstractRNG=Random.default_rng(),
-    optim_options::Optim.Options=Optim.Options(show_trace=true, iterations=500),
+    N::Integer = 512,
+    resample_threshold::Real = 0.5,
+    rng::AbstractRNG = Random.default_rng(),
+    optim_options::Optim.Options = Optim.Options(show_trace = true, iterations = 500),
 )
     # Pack parameters into a vector and back
     θ0, pack! = _make_param_io(model)
 
-    obj = θ -> begin
-        pack!(model, θ)
-        -log_marginal_likelihood(rng, model, trials; N=N, resample_threshold=resample_threshold)
-    end
+    obj =
+        θ -> begin
+            pack!(model, θ)
+            -log_marginal_likelihood(
+                rng,
+                model,
+                trials;
+                N = N,
+                resample_threshold = resample_threshold,
+            )
+        end
 
     result = optimize(obj, θ0, NelderMead(), optim_options)
     pack!(model, Optim.minimizer(result))
@@ -429,41 +498,45 @@ function fit!(
 end
 
 # Parameter packing for LeakyAccumulatorModel + LinearPoissonObservationModel
-function _make_param_io(model::NeuralDDM{<:LeakyAccumulatorModel, <:LinearPoissonObservationModel})
+function _make_param_io(
+    model::NeuralDDM{<:LeakyAccumulatorModel,<:LinearPoissonObservationModel},
+)
     s = model.state
     o = model.obs
     θ0 = vcat([s.B, s.v, s.λ, s.σ², s.α, s.γ], o.b, o.w)
 
     function pack!(m::NeuralDDM, θ::AbstractVector)
-        m.state.B  = θ[1]
-        m.state.v  = θ[2]
-        m.state.λ  = θ[3]
+        m.state.B = θ[1]
+        m.state.v = θ[2]
+        m.state.λ = θ[3]
         m.state.σ² = θ[4]
-        m.state.α  = θ[5]
-        m.state.γ  = θ[6]
+        m.state.α = θ[5]
+        m.state.γ = θ[6]
         N = length(m.obs.b)
-        m.obs.b .= θ[7:6+N]
-        m.obs.w .= θ[7+N:6+2N]
+        m.obs.b .= θ[7:(6+N)]
+        m.obs.w .= θ[(7+N):(6+2N)]
     end
 
     return θ0, pack!
 end
 
 # Parameter packing for LeakyAccumulatorModel + BasisPoissonObservationModel
-function _make_param_io(model::NeuralDDM{<:LeakyAccumulatorModel, <:BasisPoissonObservationModel})
+function _make_param_io(
+    model::NeuralDDM{<:LeakyAccumulatorModel,<:BasisPoissonObservationModel},
+)
     s = model.state
     o = model.obs
     θ0 = vcat([s.B, s.v, s.λ, s.σ², s.α, s.γ], vec(o.β))
 
     function pack!(m::NeuralDDM, θ::AbstractVector)
-        m.state.B  = θ[1]
-        m.state.v  = θ[2]
-        m.state.λ  = θ[3]
+        m.state.B = θ[1]
+        m.state.v = θ[2]
+        m.state.λ = θ[3]
         m.state.σ² = θ[4]
-        m.state.α  = θ[5]
-        m.state.γ  = θ[6]
+        m.state.α = θ[5]
+        m.state.γ = θ[6]
         KN = length(m.obs.β)
-        m.obs.β .= reshape(θ[7:6+KN], size(m.obs.β))
+        m.obs.β .= reshape(θ[7:(6+KN)], size(m.obs.β))
     end
 
     return θ0, pack!

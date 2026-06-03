@@ -35,20 +35,22 @@ end
 function kl_gaussian_diag(q::TrialVIParams, hyper::DDMHyper)
     μ, logσ = q.μ, q.logσ
     m, logσ0 = hyper.m, hyper.logσ
-    σ  = exp.(logσ)
+    σ = exp.(logσ)
     σ0 = exp.(logσ0)
 
-    term = (σ.^2 .+ (μ .- m).^2) ./ (σ0.^2) .- 1 .+ 2 .* logσ0 .- 2 .* logσ
+    term = (σ .^ 2 .+ (μ .- m) .^ 2) ./ (σ0 .^ 2) .- 1 .+ 2 .* logσ0 .- 2 .* logσ
     return 0.5 * sum(term)
 end
 
-function elbo_trial(q::TrialVIParams,
-                    y::DDMResult,
-                    hyper::DDMHyper;
-                    K::Int=3,
-                    rng::AbstractRNG=Random.default_rng())
+function elbo_trial(
+    q::TrialVIParams,
+    y::DDMResult,
+    hyper::DDMHyper;
+    K::Int = 3,
+    rng::AbstractRNG = Random.default_rng(),
+)
     ll_acc = 0.0
-    for k in 1:K
+    for k = 1:K
         u = sample_u(q, rng)
         B, v, a₀, τ = transform_params(u)
 
@@ -64,9 +66,9 @@ function pack_q(q::TrialVIParams)
     return vcat(q.μ, q.logσ)
 end
 
-function unpack_q(θ::AbstractVector{T}) where T<:Real
+function unpack_q(θ::AbstractVector{T}) where {T<:Real}
     @assert length(θ) == 8
-    μ    = θ[1:4]
+    μ = θ[1:4]
     logσ = θ[5:8]
     return TrialVIParams{T}(collect(μ), collect(logσ))
 end
@@ -89,7 +91,12 @@ function optimize_trial_vi(q0, y, hyper, eps)
         isfinite(elbo_val) ? elbo_val : 1e10
     end
 
-    res = optimize(f, θ0, BFGS(linesearch=Optim.LineSearches.BackTracking()); autodiff=AutoForwardDiff())
+    res = optimize(
+        f,
+        θ0,
+        BFGS(linesearch = Optim.LineSearches.BackTracking());
+        autodiff = AutoForwardDiff(),
+    )
     if !Optim.converged(res) || any(isnan, Optim.minimizer(res))
         @warn "Trial optimization failed, keeping initial parameters"
         return q0
@@ -110,17 +117,17 @@ function update_hyper_from_qs(qs::Vector{<:TrialVIParams})
         return DDMHyper(m, logσ0)
     end
 
-    μ_mat  = zeros(d, N_valid)
+    μ_mat = zeros(d, N_valid)
     σ2_mat = zeros(d, N_valid)
 
     for (j, q) in enumerate(valid_qs)
         μ_mat[:, j] .= q.μ
         σ = exp.(q.logσ)
-        σ2_mat[:, j] .= σ.^2
+        σ2_mat[:, j] .= σ .^ 2
     end
 
-    m = vec(mean(μ_mat; dims=2))
-    σ0_sq = vec(mean(σ2_mat .+ (μ_mat .- m).^2; dims=2))
+    m = vec(mean(μ_mat; dims = 2))
+    σ0_sq = vec(mean(σ2_mat .+ (μ_mat .- m) .^ 2; dims = 2))
     logσ0 = 0.5 .* log.(σ0_sq .+ 1e-6)
 
     if any(isnan, m) || any(isnan, logσ0)
@@ -132,12 +139,14 @@ function update_hyper_from_qs(qs::Vector{<:TrialVIParams})
     return DDMHyper(collect(m), collect(logσ0))
 end
 
-function fit_vi_gaussian(data::Vector{DDMResult};
-                         n_iter::Int=10,
-                         K::Int=3,
-                         rng::AbstractRNG=Random.default_rng(),
-                         verbose::Bool=true,
-                         init_from_data::Bool=true)
+function fit_vi_gaussian(
+    data::Vector{DDMResult};
+    n_iter::Int = 10,
+    K::Int = 3,
+    rng::AbstractRNG = Random.default_rng(),
+    verbose::Bool = true,
+    init_from_data::Bool = true,
+)
     N = length(data)
     d = 4
 
@@ -161,7 +170,9 @@ function fit_vi_gaussian(data::Vector{DDMResult};
 
         m0 = [log(B_init), log(τ_init), log(v_init), 0.0]
         if verbose
-            println("Data-driven init: B=$(round(B_init, digits=3)), τ=$(round(τ_init, digits=3)), v=$(round(v_init, digits=3))")
+            println(
+                "Data-driven init: B=$(round(B_init, digits=3)), τ=$(round(τ_init, digits=3)), v=$(round(v_init, digits=3))",
+            )
         end
     else
         m0 = [log(2.0), log(0.1), log(1.0), 0.0]
@@ -173,7 +184,7 @@ function fit_vi_gaussian(data::Vector{DDMResult};
 
     # 2. Initialize q_i with small random perturbations to break symmetry
     qs = Vector{TrialVIParams{Float64}}(undef, N)
-    for i in 1:N
+    for i = 1:N
         μ_init = m0 .+ randn(rng, 4) .* 0.1  # small random perturbation
         qs[i] = TrialVIParams{Float64}(μ_init, copy(logσ0))
     end
@@ -181,25 +192,24 @@ function fit_vi_gaussian(data::Vector{DDMResult};
     # Track ELBO history
     elbo_history = Float64[]
 
-    for iter in 1:n_iter
+    for iter = 1:n_iter
         if verbose
             println("VI iter $iter")
         end
 
         # E-step: update each q_i
-        epss = [ [randn(4) for _ in 1:K] for i in 1:N ]  # serial RNG use
+        epss = [[randn(4) for _ = 1:K] for i = 1:N]  # serial RNG use
 
-        @threads for i in 1:N
+        @threads for i = 1:N
             q_new = optimize_trial_vi(qs[i], data[i], hyper, epss[i])
             qs[i] = q_new
         end
-
 
         # M-step: update hyper from q_i's
         hyper = update_hyper_from_qs(qs)
 
         # Compute and store total ELBO
-        elbo = total_elbo(qs, data, hyper; K=K, rng=rng)
+        elbo = total_elbo(qs, data, hyper; K = K, rng = rng)
         push!(elbo_history, elbo)
 
         if verbose
@@ -210,14 +220,16 @@ function fit_vi_gaussian(data::Vector{DDMResult};
     return hyper, qs, elbo_history
 end
 
-function total_elbo(qs::Vector{<:TrialVIParams},
-                    data::Vector{DDMResult},
-                    hyper::DDMHyper;
-                    K::Int=3,
-                    rng::AbstractRNG=Random.default_rng())
+function total_elbo(
+    qs::Vector{<:TrialVIParams},
+    data::Vector{DDMResult},
+    hyper::DDMHyper;
+    K::Int = 3,
+    rng::AbstractRNG = Random.default_rng(),
+)
     total = 0.0
     @inbounds for i in eachindex(data)
-        total += elbo_trial(qs[i], data[i], hyper; K=K, rng=rng)
+        total += elbo_trial(qs[i], data[i], hyper; K = K, rng = rng)
     end
     return total
 end
