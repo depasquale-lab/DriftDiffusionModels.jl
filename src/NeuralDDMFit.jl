@@ -146,7 +146,9 @@ function _pf_loglik(
     # ForwardDiff, which would poison the whole gradient even though the value is fine.
     sΣ0 = iszero(s.Σ₀) ? zero(P) : sqrt(s.Σ₀)
     particles = P[s.μ₀ + sΣ0 * ε_init[i] for i = 1:Np]
-    log_w = zeros(P, Np)
+    # log_w holds *normalized* log weights (∑ exp = 1), initialized uniform.
+    logN = log(Np)
+    log_w = fill!(Vector{P}(undef, Np), -logN)
     log_ml = zero(P)
 
     for t = 1:Tbins
@@ -170,15 +172,17 @@ function _pf_loglik(
             end
         end
 
+        # Incremental marginal likelihood: log ∑_i W_{t-1}^i · α_t^i (carried
+        # weights already normalized, so no -log(N) here). Then renormalize.
         lse = logsumexp(log_w)
-        log_ml += lse - log(Np)
+        log_ml += lse
         log_w .-= lse
 
         # Fixed-schedule resampling (never on the final bin — no propagation follows).
         if resample_every > 0 && t < Tbins && t % resample_every == 0
             idx = _systematic_resample_fixed(log_w, u_resample[t])
             particles = particles[idx]
-            fill!(log_w, zero(P))
+            fill!(log_w, -logN)
         end
     end
 

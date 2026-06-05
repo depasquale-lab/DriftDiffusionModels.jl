@@ -378,7 +378,9 @@ function particle_filter(
     T_bins = n_time(trial)
     log_ml = 0.0                       # accumulated log marginal likelihood
     particles = [init_sample(rng, model) for _ = 1:N]
-    log_w = zeros(Float64, N)         # log unnormalized weights
+    # log_w holds *normalized* log weights (∑ exp = 1), initialized uniform.
+    logN = log(N)
+    log_w = fill(-logN, N)
 
     for t = 1:T_bins
         u_t = trial.u[t]
@@ -400,17 +402,20 @@ function particle_filter(
             end
         end
 
-        # Normalise: accumulate log marginal likelihood increment
+        # Incremental marginal likelihood: log ∑_i W_{t-1}^i · α_t^i. The carried
+        # weights are already normalized, so this is just logsumexp with no
+        # -log(N) term; subtracting log(N) here too (the previous behavior) is
+        # only correct when resampling every step, and over-counts otherwise.
         lse = logsumexp(log_w)
-        log_ml += lse - log(N)
-        log_w .-= lse               # now log_w are log normalized weights
+        log_ml += lse
+        log_w .-= lse               # renormalize
 
         # Systematic resampling when ESS drops below threshold
         ess = exp(-logsumexp(2 .* log_w))
         if ess < resample_threshold * N
             indices = _systematic_resample(rng, log_w, N)
             particles = particles[indices]
-            fill!(log_w, 0.0)
+            fill!(log_w, -logN)     # reset to uniform *normalized* weights
         end
     end
 
