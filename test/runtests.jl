@@ -3,6 +3,8 @@ using Random
 using Statistics
 using FiniteDiff
 using ForwardDiff
+import HiddenMarkovModels          # registers logdensityof(::AbstractHMM, …); imported (not used) to keep bare `logdensityof` unambiguous
+import DensityInterface
 using DriftDiffusionModels
 
 @testset verbose=true "DriftDiffusionModels.jl Tests" begin

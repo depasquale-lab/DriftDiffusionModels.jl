@@ -48,9 +48,11 @@ struct PriorHMM{T<:Real,D} <: HiddenMarkovModels.AbstractHMM
     α_trans  :: Matrix{T}
     "Dirichlet hyper‑parameters for `π`."
     α_init   :: Vector{T}
+    "Estimate a single emission nonlinearity (`α`) shared across all states."
+    share_α  :: Bool
 
     function PriorHMM(init::Vector{T}, trans::Matrix{T}, dists::Vector{D};
-                      α_trans = one(T), α_init = one(T)) where {T<:Real,D}
+                      α_trans = one(T), α_init = one(T), share_α::Bool = false) where {T<:Real,D}
         K = length(init)
         @assert size(trans) == (K, K)       "`trans` must be K×K"
         @assert abs(sum(init) - one(T)) < 1e-8       "`init` must sum to 1"
@@ -62,12 +64,13 @@ struct PriorHMM{T<:Real,D} <: HiddenMarkovModels.AbstractHMM
         @assert all(αT .> zero(T)) "α_trans must be positive"
         @assert all(αI .> zero(T)) "α_init  must be positive"
 
-        new{T,D}(copy(init), copy(trans), deepcopy(dists), αT, αI)
+        new{T,D}(copy(init), copy(trans), deepcopy(dists), αT, αI, share_α)
     end
 end
 
 # Positional‑argument constructor
-PriorHMM(init, trans, dists, αT, αI) = PriorHMM(init, trans, dists; α_trans = αT, α_init = αI)
+PriorHMM(init, trans, dists, αT, αI; share_α::Bool = false) =
+    PriorHMM(init, trans, dists; α_trans = αT, α_init = αI, share_α = share_α)
 
 Base.length(hmm::PriorHMM) = length(hmm.init)
 
@@ -125,6 +128,28 @@ function StatsAPI.fit!(hmm::PriorHMM,
                        obs_seq::AbstractVector; seq_ends)
     K = length(hmm)
 
+    _update_init_trans!(hmm, fb, seq_ends)
+
+    # update each emission model using state marginals γ
+    for i in 1:K
+        StatsAPI.fit!(hmm.dists[i], obs_seq, fb.γ[i, :])
+    end
+
+    @assert HiddenMarkovModels.valid_hmm(hmm)
+    return nothing
+end
+
+"""
+    _update_init_trans!(hmm::PriorHMM, fb, seq_ends)
+
+Apply the Baum–Welch M-step update for the initial distribution `π` and the
+transition matrix `A`, including the Dirichlet `α − 1` pseudo-counts. Factored
+out so emission-specific `fit!` methods (e.g. shared-`α` CoherentDDM) can reuse
+the identical transition update.
+"""
+function _update_init_trans!(hmm::PriorHMM,
+                             fb::HiddenMarkovModels.ForwardBackwardStorage,
+                             seq_ends)
     init_counts  = hmm.α_init  .- 1           # prior for π
     trans_counts = hmm.α_trans .- 1           # prior for A
 
@@ -136,12 +161,5 @@ function StatsAPI.fit!(hmm::PriorHMM,
 
     hmm.init  .= init_counts ./ sum(init_counts)
     hmm.trans .= trans_counts ./ sum(trans_counts; dims = 2)
-
-    # update each emission model using state marginals γ
-    for i in 1:K
-        StatsAPI.fit!(hmm.dists[i], obs_seq, fb.γ[i, :])
-    end
-
-    @assert HiddenMarkovModels.valid_hmm(hmm)
     return nothing
 end
