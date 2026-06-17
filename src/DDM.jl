@@ -240,8 +240,10 @@ function StatsAPI.fit!(model::DriftDiffusionModel, x::Vector{DDMResult}, w::Abst
     lower_bounds = [0.001, 0, 0, 1e-3]
     upper_bounds = [50.0, 10.0, 1.0, 5.0]
 
-    # Optimize using L-BFGS-B to respect the bounds
-    result = optimize(neg_log_likelihood, lower_bounds, upper_bounds, initial_params, Fminbox(LBFGS(linesearch=Optim.LineSearches.BackTracking())), autodiff=:forward)
+    # Optimize using L-BFGS-B to respect the bounds. Supply an explicit
+    # ForwardDiff gradient (Optim ≥ 2.0 no longer accepts `autodiff=:forward`).
+    g! = (g, params) -> ForwardDiff.gradient!(g, neg_log_likelihood, params)
+    result = optimize(neg_log_likelihood, g!, lower_bounds, upper_bounds, initial_params, Fminbox(LBFGS(linesearch=Optim.LineSearches.BackTracking())))
 
     # Extract the optimized parameters
     optimal_params = Optim.minimizer(result)

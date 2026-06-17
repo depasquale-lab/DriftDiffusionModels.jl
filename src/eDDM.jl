@@ -89,7 +89,8 @@ function optimize_trial_vi(q0, y, hyper, eps)
         isfinite(elbo_val) ? elbo_val : 1e10
     end
 
-    res = optimize(f, θ0, BFGS(linesearch=Optim.LineSearches.BackTracking()); autodiff=:forward)
+    g! = (g, θ) -> ForwardDiff.gradient!(g, f, θ)
+    res = optimize(f, g!, θ0, BFGS(linesearch=Optim.LineSearches.BackTracking()))
     if !Optim.converged(res) || any(isnan, Optim.minimizer(res))
         @warn "Trial optimization failed, keeping initial parameters"
         return q0
