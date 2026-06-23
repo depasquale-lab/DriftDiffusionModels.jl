@@ -408,6 +408,15 @@ The teaching point is that group averages are useful, but they can hide differen
 strategies or abilities across individuals.
 """
 
+# ╔═╡ 11111111-0000-0000-0000-000000000060
+md"""
+### And the chronometric curves, person by person
+
+Same idea for reaction time. Most people are slowest when the signal is weak (left
+side) and speed up as it gets stronger. For some that drop is crisp; for others
+it's buried in noise, which tells you something about how reliable their timing is.
+"""
+
 # ╔═╡ 11111111-0000-0000-0000-00000000002a
 md"""
 ### The speed/accuracy trade-off, one dot per person
@@ -590,16 +599,17 @@ plot_residuals(trials, model)
 worst_residuals(trials, model)
 
 # ╔═╡ 11111111-0000-0000-0000-000000000029
-student_grid = let
+student_grid = begin
     helpers_ready
-    ids = sort(collect(keys(class)))
-    panels = map(ids) do id
-        p = plot_psychometric(class[id])
-        plot!(p; title = id, legend = false, titlefontsize = 8, xlabel = "", ylabel = "")
-        p
-    end
-    plot(panels...; layout = (3, 4), size = (1150, 760),
-         plot_title = "Each participant's psychometric curve")
+    plot_student_grid(class, plot_psychometric;
+                      title = "Each participant's psychometric curve")
+end
+
+# ╔═╡ 11111111-0000-0000-0000-000000000061
+chrono_grid = begin
+    helpers_ready
+    plot_student_grid(class, plot_chronometric;
+                      title = "Each participant's chronometric curve")
 end
 
 # ╔═╡ 11111111-0000-0000-0000-00000000002b
@@ -694,6 +704,8 @@ live working copy of `DriftDiffusionModels.jl`.*
 # ╠═11111111-0000-0000-0000-000000000050
 # ╟─11111111-0000-0000-0000-000000000028
 # ╠═11111111-0000-0000-0000-000000000029
+# ╟─11111111-0000-0000-0000-000000000060
+# ╠═11111111-0000-0000-0000-000000000061
 # ╟─11111111-0000-0000-0000-00000000002a
 # ╠═11111111-0000-0000-0000-00000000002b
 # ╟─11111111-0000-0000-0000-00000000003a

@@ -103,9 +103,9 @@ end
 P(choose right) vs signed coherence. Pass a fitted `model` to overlay its
 prediction (dashed). Extra kwargs pass through to `plot`.
 """
-function plot_psychometric(trials; model=nothing, kwargs...)
+function plot_psychometric(trials; model=nothing, ms=6, kwargs...)
     lv, pr, n = pright_by_signed_coherence(trials)
-    plt = scatter(lv, pr; ms=6, label="data (n/level: $(minimum(n))–$(maximum(n)))",
+    plt = scatter(lv, pr; ms=ms, label="data (n/level: $(minimum(n)) to $(maximum(n)))",
         xlabel="signed coherence  (s · c)", ylabel="P(choose right)",
         title="Psychometric", legend=:bottomright, ylim=(-0.02, 1.02),
         xlim=(-1.05*maximum(abs, lv), 1.05*maximum(abs, lv)), kwargs...)
@@ -123,9 +123,9 @@ end
 
 Mean reaction time vs coherence strength. Pass a fitted `model` to overlay.
 """
-function plot_chronometric(trials; model=nothing, kwargs...)
+function plot_chronometric(trials; model=nothing, ms=6, kwargs...)
     cohs, mrt, sem = meanrt_by_coherence(trials)
-    plt = scatter(cohs, mrt; yerror=sem, ms=6, label="data",
+    plt = scatter(cohs, mrt; yerror=sem, ms=ms, label="data",
         xlabel="coherence  c", ylabel="mean RT (s)",
         title="Chronometric", legend=:topright, kwargs...)
     if model !== nothing
@@ -144,6 +144,27 @@ function plot_summary(trials; model=nothing)
     p1 = plot_psychometric(trials; model=model)
     p2 = plot_chronometric(trials; model=model)
     return plot(p1, p2; layout=(1, 2), size=(980, 420), margin=4Plots.mm)
+end
+
+"""
+    plot_student_grid(class, panelfn; title="", ncols=4, ms=3, kwargs...)
+
+Small-multiples grid: run `panelfn` (e.g. `plot_psychometric` or
+`plot_chronometric`) on every student, one titled panel each. Axis labels are
+dropped and panels are sized generously so the grid doesn't look squished.
+"""
+function plot_student_grid(class, panelfn; title="", ncols=3, ms=5, kwargs...)
+    ids   = sort(collect(keys(class)))
+    nrows = cld(length(ids), ncols)
+    panels = map(ids) do id
+        p = panelfn(class[id]; ms=ms)
+        plot!(p; title=id, legend=false, titlefontsize=11,
+              xlabel="", ylabel="", tickfontsize=8)
+        p
+    end
+    return plot(panels...; layout=(nrows, ncols), size=(440*ncols, 380*nrows),
+                plot_title=title, plot_titlefontsize=14,
+                left_margin=4Plots.mm, bottom_margin=4Plots.mm, kwargs...)
 end
 
 """
