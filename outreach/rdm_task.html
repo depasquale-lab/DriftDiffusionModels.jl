@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Decision Experiment</title>
+<style>
+  :root { --bg:#101418; --fg:#e8eef3; --accent:#4da3ff; --muted:#8a96a3; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--fg);
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; overflow:hidden; }
+  #screen { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; }
+  .panel { max-width:680px; padding:28px 32px; text-align:center; line-height:1.5; }
+  .panel h1 { font-size: clamp(22px, 5vw, 34px); margin:0 0 12px; }
+  .panel h2 { font-size: clamp(18px, 4vw, 26px); margin:0 0 12px; }
+  .panel p  { font-size: clamp(15px, 3.4vw, 18px); color:var(--fg); }
+  .key { display:inline-block; padding:2px 10px; border:1px solid var(--muted);
+    border-radius:6px; font-weight:600; margin:0 2px; }
+  button.start { margin-top:22px; font-size:18px; padding:14px 28px; border-radius:10px;
+    border:none; background:var(--accent); color:#04121f; font-weight:700; cursor:pointer; }
+  button.start:active { transform: translateY(1px); }
+  #canvas { display:block; }
+  #fixation { position:fixed; inset:0; display:none; align-items:center; justify-content:center;
+    font-size:48px; color:var(--fg); pointer-events:none; }
+  #progress { position:fixed; top:10px; left:0; right:0; text-align:center; color:var(--muted);
+    font-size:13px; display:none; }
+  #feedback { position:fixed; inset:0; display:none; align-items:center; justify-content:center;
+    font-size:30px; font-weight:700; pointer-events:none; }
+  /* On-screen response buttons for touch devices */
+  #touch { position:fixed; bottom:0; left:0; right:0; height:34vh; display:none; }
+  #touch .half { position:absolute; top:0; bottom:0; width:50%; display:flex; align-items:center;
+    justify-content:center; font-size:44px; color:var(--muted);
+    background:rgba(255,255,255,0.03); user-select:none; }
+  #touch .half:active { background:rgba(77,163,255,0.18); }
+  #touch #leftBtn { left:0; border-right:1px solid rgba(255,255,255,0.06); }
+  #touch #rightBtn { right:0; }
+  .muted { color:var(--muted); font-size:13px; }
+  a { color:var(--accent); }
+</style>
+</head>
+<body>
+
+<!-- ===================================================================== -->
+<!--  CONFIG  —  EDIT THIS BLOCK, NOTHING ELSE.                            -->
+<!--  See outreach/README.md for the 5-minute Google Form setup that      -->
+<!--  produces FORM_ACTION, ENTRY_PID and ENTRY_DATA.                      -->
+<!-- ===================================================================== -->
+<script>
+const CONFIG = {
+  // Paste the form's POST url. It looks like:
+  //   https://docs.google.com/forms/d/e/1FAIpQL.../formResponse
+  // Leave as "" to run in test mode (no upload, just downloads the CSV).
+  FORM_ACTION: "https://docs.google.com/forms/d/e/1FAIpQLSdCUTLBFR3IftdWBPhvjHLquJweuZ4Co0yyCFYJdTbRGAE_cA/formResponse",
+
+  // The two field IDs from your Google Form (look like "entry.123456789").
+  ENTRY_PID:  "entry.1418306399",   // short-answer field: participant id
+  ENTRY_DATA: "entry.1797824850",   // paragraph field: trial data
+
+  // --- Task design -------------------------------------------------------
+  // Coherence levels (0 = pure noise/chance, 1 = all dots move together).
+  COHERENCES: [0.0, 0.08, 0.16, 0.32, 0.64],
+  REPS_PER_DIRECTION: 20,   // per coherence, per direction -> total = COH * 2 * REPS
+  PRACTICE_TRIALS: 8,       // easy, with feedback; NOT saved
+
+  // --- Timing (seconds) --------------------------------------------------
+  FIXATION_SEC: 0.5,
+  MAX_RT_SEC: 4.0,          // trial times out if no response
+  ITI_SEC: 0.4,
+  BREAK_EVERY: 50,          // short rest after this many main trials
+
+  // --- Stimulus appearance ----------------------------------------------
+  N_DOTS: 150,
+  DOT_RADIUS_PX: 2.5,
+  DOT_SPEED_DPS: 240,       // dot speed in pixels/second
+  APERTURE_FRAC: 0.42,      // aperture radius as fraction of min(screen w,h)
+};
+</script>
+<!-- ===================================================================== -->
+<!--  END CONFIG. No need to edit below this line.                         -->
+<!-- ===================================================================== -->
+
+<canvas id="canvas"></canvas>
+<div id="fixation">+</div>
+<div id="feedback"></div>
+<div id="progress"></div>
+<div id="touch">
+  <div class="half" id="leftBtn">&#8592;</div>
+  <div class="half" id="rightBtn">&#8594;</div>
+</div>
+<div id="screen"></div>
+
+<script>
+"use strict";
+
+// ----------------------------------------------------------------------
+//  Globals & helpers
+// ----------------------------------------------------------------------
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+const screenEl = document.getElementById("screen");
+const fixEl = document.getElementById("fixation");
+const fbEl  = document.getElementById("feedback");
+const progEl = document.getElementById("progress");
+const touchEl = document.getElementById("touch");
+
+let W = 0, H = 0, CX = 0, CY = 0, APERTURE = 0, DPR = 1;
+const isTouch = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth; H = window.innerHeight;
+  canvas.width = W * DPR; canvas.height = H * DPR;
+  canvas.style.width = W + "px"; canvas.style.height = H + "px";
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  CX = W / 2; CY = H / 2;
+  APERTURE = Math.min(W, H) * CONFIG.APERTURE_FRAC;
+}
+window.addEventListener("resize", resize);
+resize();
+
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+function shuffle(a) {
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+// Anonymous participant id: random, no personal info.
+function makeAnonId() {
+  const r = Math.random().toString(36).slice(2, 8).toUpperCase();
+  const t = Date.now().toString(36).slice(-4).toUpperCase();
+  return "P-" + t + r;
+}
+
+// ----------------------------------------------------------------------
+//  Trial list
+// ----------------------------------------------------------------------
+function buildTrials() {
+  const trials = [];
+  for (const c of CONFIG.COHERENCES) {
+    for (const s of [-1, 1]) {            // -1 = leftward, +1 = rightward
+      for (let r = 0; r < CONFIG.REPS_PER_DIRECTION; r++) {
+        trials.push({ c, s });
+      }
+    }
+  }
+  return shuffle(trials);
+}
+
+// ----------------------------------------------------------------------
+//  Random-dot-motion animation
+//  Each frame, every dot is "coherent" with probability c (white-noise
+//  algorithm): coherent dots translate in the signal direction, the rest
+//  move in a fresh random direction. Dots that leave the aperture are
+//  reborn at a random spot inside it, keeping density uniform.
+// ----------------------------------------------------------------------
+function makeDots() {
+  const dots = [];
+  for (let i = 0; i < CONFIG.N_DOTS; i++) {
+    const ang = Math.random() * 2 * Math.PI;
+    const rad = Math.sqrt(Math.random()) * APERTURE;
+    dots.push({ x: CX + rad * Math.cos(ang), y: CY + rad * Math.sin(ang) });
+  }
+  return dots;
+}
+
+let rafId = null;
+function runDots(coherence, signDir) {
+  // signDir: -1 left, +1 right. Signal vector points along x.
+  const dots = makeDots();
+  const speedPerSec = CONFIG.DOT_SPEED_DPS;
+  let last = performance.now();
+
+  function frame(now) {
+    let dt = (now - last) / 1000;
+    last = now;
+    if (dt > 0.05) dt = 0.05;                 // clamp after tab stalls
+    const step = speedPerSec * dt;
+
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = "#e8eef3";
+    for (const d of dots) {
+      let ang;
+      if (Math.random() < coherence) {
+        ang = signDir > 0 ? 0 : Math.PI;       // coherent: along signal
+      } else {
+        ang = Math.random() * 2 * Math.PI;     // noise: random direction
+      }
+      d.x += step * Math.cos(ang);
+      d.y += step * Math.sin(ang);
+      // reborn if outside circular aperture
+      const dx = d.x - CX, dy = d.y - CY;
+      if (dx * dx + dy * dy > APERTURE * APERTURE) {
+        const a = Math.random() * 2 * Math.PI;
+        const r = Math.sqrt(Math.random()) * APERTURE;
+        d.x = CX + r * Math.cos(a);
+        d.y = CY + r * Math.sin(a);
+      }
+      ctx.beginPath();
+      ctx.arc(d.x, d.y, CONFIG.DOT_RADIUS_PX, 0, 2 * Math.PI);
+      ctx.fill();
+    }
+    rafId = requestAnimationFrame(frame);
+  }
+  rafId = requestAnimationFrame(frame);
+}
+function stopDots() {
+  if (rafId !== null) { cancelAnimationFrame(rafId); rafId = null; }
+  ctx.clearRect(0, 0, W, H);
+}
+
+// ----------------------------------------------------------------------
+//  Response collection (keyboard + touch), resolves to -1 / +1 / null
+// ----------------------------------------------------------------------
+function waitForResponse(timeoutMs) {
+  return new Promise((resolve) => {
+    let done = false;
+    const t0 = performance.now();
+    function finish(choice) {
+      if (done) return; done = true;
+      cleanup();
+      resolve({ choice, rt: (performance.now() - t0) / 1000 });
+    }
+    function onKey(e) {
+      if (e.key === "ArrowLeft")  finish(-1);
+      else if (e.key === "ArrowRight") finish(1);
+    }
+    const onLeft  = () => finish(-1);
+    const onRight = () => finish(1);
+    function cleanup() {
+      clearTimeout(timer);
+      window.removeEventListener("keydown", onKey);
+      document.getElementById("leftBtn").removeEventListener("pointerdown", onLeft);
+      document.getElementById("rightBtn").removeEventListener("pointerdown", onRight);
+    }
+    const timer = setTimeout(() => finish(null), timeoutMs);
+    window.addEventListener("keydown", onKey);
+    document.getElementById("leftBtn").addEventListener("pointerdown", onLeft);
+    document.getElementById("rightBtn").addEventListener("pointerdown", onRight);
+  });
+}
+
+// ----------------------------------------------------------------------
+//  One trial: fixation -> dots until response/timeout -> (feedback) -> ITI
+// ----------------------------------------------------------------------
+async function runTrial(trial, { feedback = false } = {}) {
+  // Fixation
+  fixEl.style.display = "flex";
+  await sleep(CONFIG.FIXATION_SEC * 1000);
+  fixEl.style.display = "none";
+
+  // Stimulus + response
+  runDots(trial.c, trial.s);
+  const resp = await waitForResponse(CONFIG.MAX_RT_SEC * 1000);
+  stopDots();
+
+  const correct = resp.choice !== null && resp.choice === trial.s;
+
+  if (feedback) {
+    fbEl.textContent = resp.choice === null ? "Too slow!" : (correct ? "Correct ✓" : "Incorrect ✗");
+    fbEl.style.color = resp.choice === null ? "#caa14d" : (correct ? "#5fd07a" : "#ff6b6b");
+    fbEl.style.display = "flex";
+    await sleep(700);
+    fbEl.style.display = "none";
+  }
+
+  await sleep(CONFIG.ITI_SEC * 1000);
+  return { ...resp, correct };
+}
+
+// ----------------------------------------------------------------------
+//  Screens
+// ----------------------------------------------------------------------
+function showPanel(html) {
+  screenEl.innerHTML = `<div class="panel">${html}</div>`;
+  screenEl.style.display = "flex";
+}
+function hidePanel() { screenEl.style.display = "none"; screenEl.innerHTML = ""; }
+
+function btn(label, id) { return `<button class="start" id="${id}">${label}</button>`; }
+function waitClick(id) {
+  return new Promise(r => document.getElementById(id).addEventListener("click", r, { once: true }));
+}
+
+const respHint = isTouch
+  ? `Tap the <span class="key">left</span> or <span class="key">right</span> side of the screen.`
+  : `Press the <span class="key">&#8592;</span> or <span class="key">&#8594;</span> arrow key.`;
+
+async function instructions() {
+  showPanel(`
+    <h1>The Moving Dots Experiment</h1>
+    <p>You'll see a cloud of flickering dots. On every trial, <b>some</b> of the
+    dots drift together either <b>left</b> or <b>right</b>, while the rest move
+    randomly.</p>
+    <p>Your job: decide which way the cloud is drifting, as <b>quickly</b> and
+    <b>accurately</b> as you can.</p>
+    <p>${respHint}</p>
+    <p class="muted">Sometimes the motion is obvious; sometimes it's nearly
+    impossible — just give your best guess. About 200 trials, ~8 minutes.
+    No names are collected.</p>
+    ${btn("Start practice", "go")}
+  `);
+  await waitClick("go");
+  hidePanel();
+}
+
+async function practice() {
+  progEl.style.display = "block";
+  if (isTouch) touchEl.style.display = "block";
+  const easy = [];
+  for (let i = 0; i < CONFIG.PRACTICE_TRIALS; i++) {
+    easy.push({ c: 0.6, s: Math.random() < 0.5 ? -1 : 1 });
+  }
+  for (let i = 0; i < easy.length; i++) {
+    progEl.textContent = `Practice ${i + 1} / ${easy.length}`;
+    await runTrial(easy[i], { feedback: true });
+  }
+  progEl.style.display = "none";
+  touchEl.style.display = "none";
+}
+
+async function readyForReal() {
+  showPanel(`
+    <h2>Nice — now the real thing</h2>
+    <p>No more feedback from here on. Keep going fast and accurate, and trust
+    your gut on the hard ones.</p>
+    <p>${respHint}</p>
+    ${btn("Begin", "go2")}
+  `);
+  await waitClick("go2");
+  hidePanel();
+}
+
+async function breakScreen(done, total) {
+  stopDots();
+  showPanel(`
+    <h2>Quick break</h2>
+    <p>${done} of ${total} done. Rest your eyes for a moment.</p>
+    ${btn("Continue", "gob")}
+  `);
+  await waitClick("gob");
+  hidePanel();
+}
+
+// ----------------------------------------------------------------------
+//  Data encoding & upload
+//  Per trial we save the 4 fields the CoherentDDM needs:
+//    rt (s), choice (-1/+1), s (-1/+1), c (0..1)
+//  Encoded as  rt:choice:s:c  joined by ';'  (see load_class_data.jl).
+// ----------------------------------------------------------------------
+function encodeData(rows) {
+  return rows.map(r =>
+    `${r.rt.toFixed(4)}:${r.choice}:${r.s}:${r.c}`).join(";");
+}
+
+function downloadCSV(pid, rows) {
+  let csv = "participant_id,trial,rt,choice,s,c\n";
+  rows.forEach((r, i) => {
+    csv += `${pid},${i + 1},${r.rt.toFixed(4)},${r.choice},${r.s},${r.c}\n`;
+  });
+  const blob = new Blob([csv], { type: "text/csv" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `rdm_${pid}.csv`;
+  document.body.appendChild(a); a.click(); a.remove();
+}
+
+// Submit via a hidden iframe + form POST: no CORS issues, no response needed.
+function uploadToForm(pid, dataBlob) {
+  return new Promise((resolve) => {
+    if (!CONFIG.FORM_ACTION) { resolve(false); return; }   // test mode
+    const iframe = document.createElement("iframe");
+    iframe.name = "hidden_submit";
+    iframe.style.display = "none";
+    document.body.appendChild(iframe);
+
+    const form = document.createElement("form");
+    form.action = CONFIG.FORM_ACTION;
+    form.method = "POST";
+    form.target = "hidden_submit";
+    form.style.display = "none";
+
+    const add = (name, value) => {
+      const inp = document.createElement("input");
+      inp.type = "hidden"; inp.name = name; inp.value = value;
+      form.appendChild(inp);
+    };
+    add(CONFIG.ENTRY_PID, pid);
+    add(CONFIG.ENTRY_DATA, dataBlob);
+
+    document.body.appendChild(form);
+    iframe.addEventListener("load", () => resolve(true), { once: true });
+    form.submit();
+    // Resolve anyway after a timeout in case the load event is suppressed.
+    setTimeout(() => resolve(true), 2500);
+  });
+}
+
+async function finish(pid, rows, summary) {
+  // Always download a local backup first.
+  let uploaded = false;
+  try { uploaded = await uploadToForm(pid, encodeData(rows)); } catch (e) {}
+  try { downloadCSV(pid, rows); } catch (e) {}
+
+  const acc = Math.round(100 * summary.correct / summary.answered);
+  const status = CONFIG.FORM_ACTION
+    ? (uploaded
+        ? `<p style="color:#5fd07a">✓ Your anonymous data was sent.</p>`
+        : `<p style="color:#ff6b6b">Upload may have failed — please send the
+           downloaded file <b>rdm_${pid}.csv</b> to your teacher.</p>`)
+    : `<p class="muted">Test mode: the file <b>rdm_${pid}.csv</b> was downloaded
+       (no Google Form configured yet).</p>`;
+
+  showPanel(`
+    <h1>All done — thank you!</h1>
+    <p>You answered <b>${summary.answered}</b> trials and got about
+    <b>${acc}%</b> right.</p>
+    <p>Your anonymous ID is <b>${pid}</b>.</p>
+    ${status}
+    <p class="muted">You can close this tab.</p>
+  `);
+}
+
+// ----------------------------------------------------------------------
+//  Main
+// ----------------------------------------------------------------------
+async function main() {
+  const pid = makeAnonId();
+  const trials = buildTrials();
+
+  await instructions();
+  await practice();
+  await readyForReal();
+
+  progEl.style.display = "block";
+  if (isTouch) touchEl.style.display = "block";
+
+  const rows = [];
+  let answered = 0, correct = 0;
+  for (let i = 0; i < trials.length; i++) {
+    if (i > 0 && i % CONFIG.BREAK_EVERY === 0) {
+      progEl.style.display = "none"; touchEl.style.display = "none";
+      await breakScreen(i, trials.length);
+      progEl.style.display = "block";
+      if (isTouch) touchEl.style.display = "block";
+    }
+    progEl.textContent = `Trial ${i + 1} / ${trials.length}`;
+    const t = trials[i];
+    const res = await runTrial(t, { feedback: false });
+
+    // Skip non-responses (timeouts) from the saved data — they have no choice.
+    if (res.choice !== null) {
+      rows.push({ rt: res.rt, choice: res.choice, s: t.s, c: t.c });
+      answered++;
+      if (res.correct) correct++;
+    }
+  }
+
+  progEl.style.display = "none";
+  touchEl.style.display = "none";
+  await finish(pid, rows, { answered, correct });
+}
+
+window.addEventListener("load", main);
+</script>
+</body>
+</html>
