@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How Does Your Brain Decide?</title>
+
+<!-- reveal.js from CDN. For an OFFLINE classroom, download reveal.js@5 and point
+     these URLs at the local copies. -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/theme/black.css">
+
+<style>
+  :root { --accent:#4da3ff; --good:#5fd07a; --bad:#ff6b6b; }
+  .reveal { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .reveal h1, .reveal h2, .reveal h3 { text-transform: none; letter-spacing: 0; font-weight: 700; }
+  .reveal h1 { font-size: 2.1em; }
+  .reveal section { text-align: left; }
+  .reveal .center { text-align: center; }
+  .reveal .accent { color: var(--accent); }
+  .reveal .good { color: var(--good); }
+  .reveal .bad { color: var(--bad); }
+  .reveal .lead { font-size: 1.35em; line-height: 1.4; }
+  .reveal .small { font-size: 0.7em; color: #9aa7b3; }
+  .reveal em { color: var(--accent); font-style: normal; }
+  .demo { background: linear-gradient(135deg, #143b5c, #0c2236); border: 2px solid var(--accent);
+    border-radius: 16px; padding: 28px 40px; }
+  .demo .tag { display:inline-block; background: var(--accent); color:#04121f; font-weight:800;
+    padding: 6px 16px; border-radius: 999px; font-size: 0.55em; letter-spacing: 1.5px; }
+  .reveal ul { width: 100%; }
+  .reveal li { margin: 12px 0; }
+  .knob { color: var(--accent); font-weight: 700; }
+  table.knobs td { padding: 6px 18px 6px 0; vertical-align: top; }
+  .pill { background:#1b2733; border-radius:10px; padding:12px 18px; display:inline-block; margin:6px; font-size:0.9em;}
+  .twocol { display:flex; gap:36px; }
+  .twocol > div { flex:1; }
+  .card { background:#15212d; border-radius:12px; padding:18px 22px; }
+  .card h3 { color:var(--accent); margin-top:0; }
+  .equation { font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    background:#101923; border:1px solid #2c4052; border-radius:10px;
+    padding:14px 18px; font-size:0.78em; color:#d9e8f5; }
+</style>
+</head>
+<body>
+<div class="reveal"><div class="slides">
+
+<!-- 1 · TITLE -->
+<section data-background-gradient="linear-gradient(180deg, #0c1620, #16222e)">
+  <h1 class="center">How Does Your Brain Decide?</h1>
+  <p class="center lead">How math turns behavior into measurements of the mind.</p>
+  <p class="center small">
+    Ryan Senne ·
+    PhD Candidate, Computational Neuroscience, Boston University
+  </p>
+  <aside class="notes">
+    Set up the hour. Everyone in this room generated data a few days ago. By the end, we'll have
+    turned it into a working model of how they decide. Frame the talk as a bigger question:
+    psychology and neuroscience study invisible things, so how can math help us measure them?
+  </aside>
+</section>
+
+<!-- 2 · WHO AM I -->
+<section>
+  <h2>Who I am</h2>
+  <ul>
+    <li class="fragment">I'm Ryan Senne, a PhD Candidate in Computational Neuroscience at
+      Boston University.</li>
+    <li class="fragment">My research question, in one sentence:
+      how does the brain turn noisy, uncertain information into a decision?</li>
+    <li class="fragment">I study that question with
+      <em>mathematical models</em> and <em>code</em>, and that is exactly what today is about.</li>
+    <li class="fragment">Not because people are equations. Because equations can make a hidden
+      process precise enough to test.</li>
+    <li class="fragment small">Today's data comes from the same task you ran at
+      <span class="accent">ryguy.io/dots</span>.</li>
+  </ul>
+  <aside class="notes">
+    Keep it human and short. One honest sentence about why you find this interesting beats a list
+    of credentials.
+  </aside>
+</section>
+
+<!-- 3 · QUOTE -->
+<section data-background-gradient="linear-gradient(180deg, #0c1620, #101c28)">
+  <blockquote style="border:none; box-shadow:none; background:none; text-align:center; width:100%">
+    <p class="lead" style="font-size:1.6em; line-height:1.35">“We are drowning in
+      information but starved for <span class="accent">knowledge</span>.”</p>
+    <p class="small" style="margin-top:18px">— John Naisbitt, <em style="color:#9aa7b3; font-style:italic">Megatrends</em> (1982)</p>
+  </blockquote>
+  <p class="center fragment" style="margin-top:30px">You generated about 2,000 decisions.
+    That's the information. Today is about turning it into knowledge.</p>
+  <aside class="notes">
+    Read it, pause, then the fragment. This is the spine of the talk: a pile of numbers is not
+    understanding. The job of a model is to make the leap.
+  </aside>
+</section>
+
+<!-- 4 · WHY MATH -->
+<section data-background-gradient="linear-gradient(180deg, #101c28, #0c1620)">
+  <h2 class="center">Why does psychology need math?</h2>
+  <p class="center lead fragment">Because the thing we care about is usually invisible.</p>
+  <div class="twocol" style="margin-top:18px">
+    <div class="card fragment">
+      <h3>What we can see</h3>
+      <p>Choices, reaction times, mistakes, eye movements, brain signals.</p>
+    </div>
+    <div class="card fragment">
+      <h3>What we want to know</h3>
+      <p>Confidence, bias, attention, caution, sensitivity, fatigue.</p>
+    </div>
+  </div>
+  <p class="center fragment" style="margin-top:22px">Math is the bridge: it turns a story about
+    the mind into predictions we can check.</p>
+  <aside class="notes">
+    This is the thesis slide for the whole visit. Keep it accessible: psychology is full of hidden
+    causes. Math doesn't make the person less human; it gives us a disciplined way to ask which
+    hidden cause best explains the visible behavior.
+  </aside>
+</section>
+
+<!-- 4 · THESIS -->
+<section data-background-gradient="linear-gradient(180deg, #102030, #0c1620)">
+  <h2 class="center">So what is a model?</h2>
+  <p class="center lead fragment">A model is a deliberately simplified description of how
+    something works.</p>
+  <p class="center lead fragment">Simple enough to reason about. Precise enough that it can make useful predictions.</p>
+  <p class="center small fragment">If a model can't be wrong, it isn't doing science. A useful
+    model makes a prediction clear enough to check.</p>
+  <aside class="notes">
+    Don't rush. "Can't be wrong, isn't science" is worth a beat. We'll let the demos prove the
+    point rather than asserting it.
+  </aside>
+</section>
+
+<!-- 5 · MODELS EVERYWHERE -->
+<section>
+  <h2>You already trust models, constantly</h2>
+  <div class="center">
+    <span class="pill fragment">Weather forecasts</span>
+    <span class="pill fragment">GPS arrival times</span>
+    <span class="pill fragment">Game physics</span>
+    <span class="pill fragment">Epidemic projections</span>
+    <span class="pill fragment">Your recommendation feed</span>
+  </div>
+  <p class="fragment" style="margin-top:24px">Not one of these is the real thing. A forecast
+    isn't the atmosphere; a GPS estimate isn't the road. Each keeps the few factors that matter,
+    ignores the rest, and makes a prediction you can check against reality.</p>
+  <aside class="notes">
+    Ask what they share. The useful move is leaving detail out. A map at 1:1 scale would be
+    perfectly accurate and perfectly useless.
+  </aside>
+</section>
+
+<!-- 6 · WHAT MAKES A MODEL GOOD -->
+<section>
+  <h2>What makes a model worth trusting?</h2>
+  <ul>
+    <li class="fragment">It predicts data it has <em>never seen</em>. (Anyone can describe the past.)</li>
+    <li class="fragment">It runs on <em>far fewer numbers</em> than the real system has moving parts.</li>
+    <li class="fragment">Those numbers <em>mean something</em>. Each one stands for a real idea you
+      can name.</li>
+  </ul>
+  <p class="fragment" style="margin-top:18px">If the numbers are meaningful, fitting the model lets you 
+    <em>describe reality in an interpretable way.</em></p>
+  <p class="fragment small">That is why math matters here: it lets psychology make measurements,
+    not just descriptions.</p>
+  <aside class="notes">
+    Foreshadow hard: the model we build has about four numbers, and each maps to something real
+    (sensitivity, caution, bias, reaction delay). We'll read those straight off button presses.
+  </aside>
+</section>
+
+<!-- 7 · DATA vs KNOWLEDGE -->
+<section>
+  <h2>Information, then knowledge</h2>
+  <div class="twocol">
+    <div class="card fragment">
+      <h3>Information</h3>
+      <p style="font-size:0.8em">2,000 rows like:</p>
+      <pre style="font-size:0.5em; color:#9aa7b3">trial  RT     choice  signal
+  1   0.62s   left    weak
+  2   0.41s   right   strong
+  3   1.93s   right   none
+   ...</pre>
+      <p class="small">True, complete, and almost impossible to think with.</p>
+    </div>
+    <div class="card fragment">
+      <h3>Knowledge</h3>
+      <p style="font-size:0.85em">Four numbers per person:</p>
+      <p style="font-size:0.85em">how <em>sensitive</em>, how <em>cautious</em>, how
+        <em>biased</em>, how much <em>delay</em>.</p>
+      <p class="small">Compact enough to compare across people and conditions.</p>
+    </div>
+  </div>
+  <p class="center fragment" style="margin-top:18px">The model is the bridge from the left box to
+    the right one.</p>
+  <aside class="notes">
+    This is the Naisbitt quote made concrete. Point at the left box: that's what we collected.
+    Point at the right: that's where we're going.
+  </aside>
+</section>
+
+<!-- 8 · THE TASK -->
+<section>
+  <h2>The decision you made about 200 times</h2>
+  <p>You all ran this at <span class="accent">ryguy.io/dots</span>. A field of dots appears. Some
+    fraction of them drift together (<span class="good">right</span> or
+    <span class="bad">left</span>); the rest just flicker at random. Your job: call the direction,
+    as fast and as accurately as you can.</p>
+  <ul>
+    <li class="fragment">When lots of dots agree, you're quick <em>and</em> correct.</li>
+    <li class="fragment">When the signal is faint, you slow down, and you start making mistakes.</li>
+  </ul>
+  <p class="fragment small">This is a standard lab task for studying
+    perceptual decisions, and it's been run on humans and monkeys for over thirty years.</p>
+  <aside class="notes">
+    Connect to what they felt. On the hard trials, did you want more time? Did you feel unsure?
+    Good. That feeling is the thing we're about to put into math.
+  </aside>
+</section>
+
+<!-- 9 · SIGNAL vs NOISE -->
+<section>
+  <h2>Difficulty has a name: coherence</h2>
+  <p><em>Coherence</em> is just the fraction of dots moving together. It's the dial we turned
+    from trial to trial.</p>
+  <div class="twocol" style="margin-top:10px">
+    <div class="card fragment center">
+      <h3 class="good">High coherence</h3>
+      <p style="font-size:2.2em">→ → → →<br>→ ↑ → →<br>→ → → ↓</p>
+      <p class="small">Obvious. Fast, accurate.</p>
+    </div>
+    <div class="card fragment center">
+      <h3 class="bad">Low coherence</h3>
+      <p style="font-size:2.2em">↑ ↘ → ↙<br>← ↗ ↓ →<br>↘ ← ↑ ↗</p>
+      <p class="small">Mostly noise. Slow, error-prone.</p>
+    </div>
+  </div>
+  <p class="fragment small center" style="margin-top:14px">At zero coherence there's no signal at
+    all. Pure guessing. We'll see that show up in the data.</p>
+  <aside class="notes">
+    Make them squint at the right box. The whole point: difficulty is something we controlled and
+    measured, so we can plot performance against it.
+  </aside>
+</section>
+
+<!-- 10 · EVIDENCE ACCUMULATION -->
+<section>
+  <h2>Why do hard decisions take longer?</h2>
+  <p class="lead">Because you don't decide all at once. You gather evidence over time, and you
+    hold off until it tips far enough one way to commit.</p>
+  <ul>
+    <li class="fragment">Strong evidence reaches that threshold quickly. Fast, confident answers.</li>
+    <li class="fragment">Weak evidence creeps up and keeps getting drowned out by noise. Slow
+      answers, and more of them wrong.</li>
+  </ul>
+  <p class="fragment">Here's the key: <em>how much</em> evidence you demand before you commit is a
+    real quantity. It sets your personal speed versus accuracy balance, and we can measure it.</p>
+  <aside class="notes">
+    Analogy if you want one: deciding which checkout line is faster. You watch both for a few
+    seconds until one clearly wins. "How sure before you commit" is the boundary we'll estimate.
+  </aside>
+</section>
+
+<!-- 11 · THE DDM PICTURE -->
+<section>
+  <h2>The Drift Diffusion Model</h2>
+  <p>Draw the building evidence as a marker. It starts in the middle and drifts toward one of two
+    boundaries, pushed by signal and shoved around by noise, until it reaches one. That's the
+    decision, and when it gets there is the reaction time.</p>
+  <svg viewBox="0 0 760 240" width="100%" height="220" style="margin-top:4px">
+    <line x1="40" y1="28"  x2="720" y2="28"  stroke="#5fd07a" stroke-width="3"/>
+    <line x1="40" y1="212" x2="720" y2="212" stroke="#ff6b6b" stroke-width="3"/>
+    <line x1="40" y1="120" x2="720" y2="120" stroke="#5a6b7a" stroke-width="1.5" stroke-dasharray="6 6"/>
+    <text x="50" y="20"  fill="#5fd07a" font-size="17">decide "right"</text>
+    <text x="50" y="232" fill="#ff6b6b" font-size="17">decide "left"</text>
+    <text x="612" y="113" fill="#9aa7b3" font-size="14">start</text>
+    <polyline fill="none" stroke="#4da3ff" stroke-width="3"
+      points="40,120 90,115 130,125 175,110 220,114 265,96 310,104 355,84 400,90 445,70 490,76 535,54 580,48 615,38 645,28"/>
+    <circle cx="645" cy="28" r="6" fill="#4da3ff"/>
+  </svg>
+  <table class="knobs fragment" style="font-size:0.66em; margin-top:0">
+    <tr><td><span class="knob">drift (k)</span></td><td>how hard the evidence pulls. This is perceptual sensitivity.</td></tr>
+    <tr><td><span class="knob">boundary (B)</span></td><td>distance to the lines, i.e. how much certainty you demand.</td></tr>
+    <tr><td><span class="knob">start (a₀)</span></td><td>a lean toward one option before any evidence arrives.</td></tr>
+    <tr><td><span class="knob">delay (τ)</span></td><td>sensing and moving time that has nothing to do with deciding.</td></tr>
+  </table>
+  <aside class="notes">
+    Trace the path with a finger. Steep climb means strong signal: fast and correct. Shallow and
+    noisy can drift into the wrong line, and that's an error. Boundary B is the speed/accuracy dial.
+  </aside>
+</section>
+
+<!-- 12 · THE MATH -->
+<section>
+  <h2>The math is just the story with rules</h2>
+  <p>The cartoon becomes a model when we write exactly how the marker moves:</p>
+  <pre class="equation">dX_t = v dt + dW_t
+v = s * k * c^alpha</pre>
+  <ul>
+    <li class="fragment"><span class="knob">v dt</span> is the signal pushing the marker.</li>
+    <li class="fragment"><span class="knob">dW_t</span> is random noise jostling it around.</li>
+    <li class="fragment">The choice happens when the marker hits 0 or <span class="knob">B</span>.</li>
+  </ul>
+  <p class="fragment small">Useful shortcut: when there is no signal, mean reaction time is roughly
+    <span class="accent">tau + B^2/4</span>. So the data already whispers what the knobs might be.</p>
+  <aside class="notes">
+    The point is not to do calculus. The point is to show that a simple verbal idea can become
+    precise enough to make predictions. This is the heart of mathematical psychology:
+    translate a mental story into a testable rule. The tau + B^2/4 shortcut sets up the notebook's
+    back-of-the-envelope guess.
+  </aside>
+</section>
+
+<!-- 12 · PREDICT BEFORE DEMO -->
+<section data-background-gradient="linear-gradient(180deg, #101c28, #0c1620)">
+  <h2 class="center">Before I touch anything, a prediction</h2>
+  <p class="center lead fragment">If I move the boundaries <em>farther apart</em>, what happens to
+    accuracy? What happens to speed?</p>
+  <p class="center fragment small">Commit to an answer in your head. Then we'll go find out.</p>
+  <aside class="notes">
+    Get a show of hands or a shout. Making them predict first is the difference between watching a
+    demo and actually learning from it. Then switch to the notebook yourself.
+  </aside>
+</section>
+
+<!-- 13 · GUESS BEFORE FITTING -->
+<section data-background-gradient="linear-gradient(180deg, #101c28, #0c1620)">
+  <h2 class="center">Second prediction: how close can we get?</h2>
+  <p class="center lead fragment">Before fitting, I'll use the math shortcuts and the sliders to
+    guess the final parameters by hand, live.</p>
+  <p class="center fragment">If the hand-tuned values are close, the fitted numbers will feel less
+    mysterious: the structure was already visible in the data.</p>
+  <aside class="notes">
+    This is the new interaction. Invite the room to tune B, k, alpha, a0, and tau before revealing
+    the maximum-likelihood fit. Let them argue about whether to fix speed or accuracy first.
+  </aside>
+</section>
+
+<!-- 13 · LIVE DEMO 1 -->
+<section data-background-gradient="linear-gradient(135deg, #143b5c, #0c2236)">
+  <div class="demo center">
+    <span class="tag">LIVE DEMO 1</span>
+    <h2 style="margin-top:16px">Explore the model</h2>
+    <p class="lead">I'll switch to the <span class="accent">notebook</span> tab, "Explore the model".</p>
+    <p class="small">(Alt-Tab or ⌘-Tab to the Pluto window.)</p>
+  </div>
+  <ul style="margin-top:22px">
+    <li class="fragment">Raise the boundary <span class="knob">B</span>. Accuracy goes up; speed goes down. (Did you call it?)</li>
+    <li class="fragment">Set the signal <span class="knob">c</span> to 0. Performance flatlines at about 50%.</li>
+    <li class="fragment">Then I'll jump to section 2 and tune the knobs against the real curves.</li>
+    <li class="fragment">This is the speed-accuracy trade-off in one parameter.</li>
+  </ul>
+  <aside class="notes">
+    Top of class_dots.jl. Two minutes, tops. Drag the sliders yourself and narrate what the paths are doing.
+    Then come back here, or push straight on to their data.
+  </aside>
+</section>
+
+<!-- 14 · NOW YOUR DATA -->
+<section>
+  <h2>Now for the real thing: your data</h2>
+  <p class="lead">We are <em>not</em> going to set those knobs by hand. Instead we hand the
+    computer all 2,000 of your decisions and ask one question:</p>
+  <p class="center lead fragment accent">"What knob settings would make the model act like this
+    class?"</p>
+  <p class="fragment small">Finding those settings is called <em>fitting</em>. It's how we
+    estimate something we never measured, like how cautious each of you is.</p>
+  <aside class="notes">
+    This is the payoff of the "meaningful numbers" slide. We're inferring hidden quantities from
+    behavior we can see.
+  </aside>
+</section>
+
+<!-- 15 · HOW FITTING WORKS -->
+<section>
+  <h2>How does "fitting" actually work?</h2>
+  <p>No black box needed. The computer repeats the same question many times:</p>
+  <ol>
+    <li class="fragment">Start with some knob settings.</li>
+    <li class="fragment">Ask: how likely is the <em>real</em> data if these settings were true?</li>
+    <li class="fragment">Nudge the knobs to make the data more likely. Repeat thousands of times.</li>
+  </ol>
+  <p class="fragment">It keeps the settings that make your actual decisions the least surprising.
+    That's the whole idea behind a lot of modern statistics and machine learning.</p>
+  <aside class="notes">
+    Keep it conceptual, no equations. The phrase "make the real data least surprising" is the
+    honest one-line version of maximum likelihood.
+  </aside>
+</section>
+
+<!-- 16 · LIVE DEMO 2 -->
+<section data-background-gradient="linear-gradient(135deg, #143b5c, #0c2236)">
+  <div class="demo center">
+    <span class="tag">LIVE DEMO 2</span>
+    <h2 style="margin-top:16px">Fit it to the class</h2>
+    <p class="lead">I'll walk through sections 1 to 9 in the <span class="accent">notebook</span>.</p>
+  </div>
+  <ul style="margin-top:16px">
+    <li class="fragment"><b>§2 Guess:</b> I'll tune the knobs by hand and compare against a rough math estimate.</li>
+    <li class="fragment"><b>§3 Fit:</b> the knobs land, and the prediction snaps onto the data.</li>
+    <li class="fragment"><b>§4 Curves:</b> accuracy versus difficulty, plus why hard trials run slow.</li>
+    <li class="fragment"><b>§5 Comparison:</b> does the extra parameter improve prediction enough to justify itself?</li>
+    <li class="fragment"><b>§7 Criticism:</b> where is the model still wrong?</li>
+    <li class="fragment"><b>§8 Individuals:</b> we'll compare cautious and fast-response strategies.</li>
+  </ul>
+  <aside class="notes">
+    The core of the talk; give it the most time. Fit "Everyone," then invite the room to nominate a person.
+    Toggle the alpha box and watch the AIC drop. Let the room drive.
+  </aside>
+</section>
+
+<!-- 17 · MODEL CRITICISM -->
+<section>
+  <h2>Do not just admire the fit. Attack it.</h2>
+  <p class="lead">A serious model has to survive criticism.</p>
+  <ul>
+    <li class="fragment">Residuals ask: where is the red line systematically wrong?</li>
+    <li class="fragment">AIC asks: did the extra parameter earn its keep?</li>
+    <li class="fragment">Simulation asks: can the model generate new data that looks like ours?</li>
+  </ul>
+  <p class="fragment">The point is not just to make the line look good. The point is to find a simple story
+    that makes predictions, then look hard at where it fails.</p>
+  <aside class="notes">
+    This slide is a tone shift. It makes the modeling less sales-pitchy and more scientific.
+    In the notebook, show the residual plot and ask the room what still looks suspicious.
+  </aside>
+</section>
+
+<!-- 17 · WHAT WE LEARNED -->
+<section>
+  <h2>Step back: what did we just do?</h2>
+  <ul>
+    <li class="fragment">From nothing but button presses, we measured things you can't observe:
+      how cautious someone is, how sharp their perception is, how long their reaction delay runs.</li>
+    <li class="fragment">One small model, a handful of numbers, described an entire class at once.
+      And it could regenerate data that looks just like yours.</li>
+    <li class="fragment">That's the win for psychology and neuroscience: behavior became numbers
+      we can compare, criticize, and use to test different explanations of the mind.</li>
+  </ul>
+  <aside class="notes">
+    Tie it back to the Naisbitt slide. We started with a pile of information; we left with knowledge.
+  </aside>
+</section>
+
+<!-- 18 · REAL TOOL / HISTORY -->
+<section>
+  <h2>This is a real research tool</h2>
+  <ul>
+    <li class="fragment">The dots task and this model are standard tools in decision neuroscience.
+      Researchers have even found neurons whose activity looks like accumulating evidence.</li>
+    <li class="fragment">The same model finds differences in ADHD, in aging, after brain injury.
+      Often the change isn't "worse senses." It's a shifted boundary.</li>
+    <li class="fragment">Same behavior, different mechanism. The model is what tells them apart.</li>
+  </ul>
+  <aside class="notes">
+    Tailor to your own work. The boundary-shift example tends to land: two people can look
+    identical on the surface and differ in exactly one interpretable number.
+  </aside>
+</section>
+
+<!-- 19 · WHY IT MATTERS / BIG PICTURE -->
+<section>
+  <h2>And the mindset travels</h2>
+  <p class="lead">Simplify. Predict. Test. Keep what survives.</p>
+  <p class="fragment">That loop is why math belongs inside psychology and neuroscience. It helps
+    us move from "that person seems cautious" to "this model predicts they set a higher boundary."</p>
+  <p class="fragment">And it is not special to brains. The same loop shows up in climate science,
+    drug trials, public health, and engineering.</p>
+  <p class="fragment">Once you know how to build and test models, you can bring that habit to a lot
+    of hard questions.</p>
+  <aside class="notes">
+    Short and forward-looking. The transferable skill is the real takeaway for a high schooler
+    who won't become a neuroscientist.
+  </aside>
+</section>
+
+<!-- 20 · CLOSE / Q&A -->
+<section data-background-gradient="linear-gradient(180deg, #16222e, #0c1620)">
+  <h2 class="center">Questions</h2>
+  <p class="center lead">Would practice change drift rate?<br>
+     Would sleep loss stretch reaction delay?<br>
+     Would emphasizing accuracy move the boundary?<br>
+     How would you design an experiment to find out?</p>
+  <p class="center small">Ryan Senne · Boston University · ryguy.io/dots</p>
+  <aside class="notes">
+    If it goes quiet, pick one of these, take a hypothesis from the room, then point out we could
+    just re-run the experiment to test it. The notebook's discussion prompts are a good place to land.
+  </aside>
+</section>
+
+</div></div>
+
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/notes/notes.js"></script>
+<script>
+  Reveal.initialize({
+    hash: true,
+    slideNumber: 'c/t',
+    transition: 'slide',
+    plugins: [ RevealNotes ],
+  });
+</script>
+<!-- Press 's' for speaker notes + timer. Arrow keys or space to advance. 'f' for fullscreen. -->
+</body>
+</html>
