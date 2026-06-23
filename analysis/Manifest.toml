@@ -360,7 +360,7 @@ version = "1.7.0"
 
 [[deps.DriftDiffusionModels]]
 deps = ["DensityInterface", "Distributions", "ForwardDiff", "HiddenMarkovModels", "LinearAlgebra", "Optim", "Random", "SpecialFunctions", "Statistics", "StatsAPI", "StatsFuns", "UnPack"]
-path = "c:\\Users\\senne\\Documents\\GitHub\\DriftDiffusionModels.jl"
+path = "C:\\Users\\senne\\Documents\\GitHub\\DriftDiffusionModels.jl\\"
 uuid = "fd42b4bb-98ff-4b36-9e51-f407bd71120d"
 version = "0.0.1"
 
