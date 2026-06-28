@@ -185,9 +185,9 @@ function logdensityof(B::TB, k::TK, α::TAlpha, a₀::TA, τ::TT,
     return isfinite(logdens) ? logdens : -1e16
 end
 
-######################################################################
-# Parameter transforms (constrained ↔ unconstrained)
-######################################################################
+#=
+ Parameter transforms (constrained <-> unconstrained)
+=#
 
 """
     _constrain_coherent(uB, uk, uα, ua₀, uτ) -> (B, k, α, a₀, τ)
