@@ -13,7 +13,6 @@ using DensityInterface
 using HiddenMarkovModels
 using SpecialFunctions
 using Base.Threads: @threads
-using Polyester: @batch
 
 
 # Import the fit! function specifically--its being weird about fit!
@@ -23,8 +22,7 @@ include("DDM.jl")
 include("HMMDDM.jl")
 include("Utilities.jl")
 include("eDDM.jl")
-include("NeuralDDM.jl")
-include("NeuralDDMFit.jl")
+include("FPTDDM.jl")
 
 export DriftDiffusionModel,
     DDMResult,
@@ -41,16 +39,14 @@ export DriftDiffusionModel,
     logsumexp,
     fit_vi_gaussian
 
-# NeuralDDM exports
-export AbstractStateModel, AbstractObservationModel
-export LeakyAccumulatorModel
+# FPTDDM (first-passage-time neural DDM) exports
+export FPTDDM
+export AbstractObservationModel
 export LinearPoissonObservationModel,
     BasisPoissonObservationModel, GPPoissonObservationModel
-export NeuralDDM
-export init_sample, init_logpdf, transition_sample, transition_logpdf
-export hazard, stop_logpdf, obs_sample, obs_logpdf, choice_logpdf
+export obs_logpdf, obs_sample
+export fpt_loglik, loglik
 export Trial, n_time, n_neurons
-export particle_filter, log_marginal_likelihood
 export simulate_trial
 
 end

@@ -127,11 +127,49 @@ Computes the per-observation log-likelihood ratio (in bits) between multi-state 
 
 ---
 
+## First-Passage-Time Neural DDM (`FPTDDM`)
+
+`FPTDDM` treats a drift-diffusion process as a **latent** whose trajectory drives
+a point-process (Poisson) observation of simultaneously recorded neurons. Unlike
+a soft-boundary readout, a choice here *is* the boundary that gets hit and the
+response time *is* the first-passage time — so behavior and spikes share a single
+generative process:
+
+* latent accumulator with absorbing boundaries at `0` and `B` (start `a₀·B`,
+  unit diffusion, optional leak `λ`), matching the `DDM.jl` WFPT convention;
+* per-neuron Poisson spikes with rate `softplus(ηₙ(x))`, where the linear
+  predictor `ηₙ(x)` comes from a swappable `AbstractObservationModel`:
+  `LinearPoissonObservationModel` (`bₙ + wₙ·x`),
+  `BasisPoissonObservationModel` (Gaussian-bump basis for nonlinear tuning), and
+  a `GPPoissonObservationModel` stub;
+* inference by an absorbing-boundary particle filter that accounts for within-bin
+  boundary crossings via the **Brownian-bridge correction**, so it estimates the
+  true continuous-time first-passage likelihood.
+
+Because the boundary is absorbing (not soft), the **spike-free marginal reduces
+to the exact Wiener first-passage density**: dropping the Poisson terms recovers
+the `wfpt`/`logdensityof` likelihood from `DDM.jl`. This is verified in
+`test/test_FPTDDM.jl` (the PF marginal matches WFPT across both boundaries and
+integrates to ~1). Behavior-only is thus a strict special case of the joint
+neural model.
+
+```julia
+model = FPTDDM(; v = 1.0, B = 1.0, a₀ = 0.5, λ = 0.0, σ² = 1.0,
+               b = [0.3, 0.1], w = [1.2, -0.8])   # 2 neurons
+trial = simulate_trial(rng, model, 0.005; max_time = 2.0)  # spikes + choice + RT
+ll    = loglik(model, trial; N = 1024, rng = rng)          # joint log-likelihood
+```
+
+Parameter fitting (differentiable PF under common random numbers) is the next
+planned step.
+
 ## File Structure
 
 * `DriftDiffusionModels.jl` – Main module file
-* `DDM.jl` – Drift Diffusion Model definitions and utilities
+* `DDM.jl` – Drift Diffusion Model definitions and utilities (WFPT likelihood)
 * `HMMDDM.jl` – HMM wrapper with DDM emissions and training
+* `eDDM.jl` – Hierarchical (empirical-Bayes VI) per-trial DDM
+* `FPTDDM.jl` – First-passage-time neural DDM (latent DDM → point process)
 
 ---
 
