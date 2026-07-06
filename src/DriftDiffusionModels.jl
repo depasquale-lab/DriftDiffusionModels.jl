@@ -23,6 +23,7 @@ include("HMMDDM.jl")
 include("Utilities.jl")
 include("eDDM.jl")
 include("FPTDDM.jl")
+include("FPTDDMFit.jl")
 
 export DriftDiffusionModel,
     DDMResult,

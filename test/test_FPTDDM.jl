@@ -1,6 +1,8 @@
 using Test
 using Random
 using Statistics
+using Optim
+using ForwardDiff
 using DriftDiffusionModels
 const DDM = DriftDiffusionModels
 
@@ -175,4 +177,68 @@ end
     b = loglik(m, tr; N = 400, rng = MersenneTwister(5))
     @test a == b
     @test isfinite(a)
+end
+
+# === differentiable fitting filter (FPTDDMFit.jl) ===
+
+@testset "_fpt_loglik_guided - behavior-only marginal matches WFPT" begin
+    B, v, a₀ = 1.0, 1.0, 0.5
+    dt = 0.005
+    m = FPTDDM(; v = v, B = B, a₀ = a₀, σ² = 1.0)   # no neurons
+    ref(rt, ch) = exp(DDM.logdensityof(B, v, a₀, 0.0, rt, ch, +1))
+    function gdens(nb, ch; N = 3000, reps = 10)
+        ll = map(1:reps) do r
+            εU, εN = DDM._draw_pf_noise(MersenneTwister(r), N, nb)
+            DDM._fpt_loglik_guided(m, nb, ch, dt, εU, εN)
+        end
+        return mean(exp.(ll)) / dt
+    end
+    for ch in (+1, -1), nb in (20, 50)
+        @test isapprox(gdens(nb, ch), ref((nb - 0.5) * dt, ch); rtol = 0.15)
+    end
+end
+
+@testset "_fpt_loglik_guided - reproducible and differentiable" begin
+    m = FPTDDM(; v = 1.0, B = 1.0, a₀ = 0.5, b = [0.5], w = [2.0])
+    tr = simulate_trial(MersenneTwister(3), m, 0.01; max_time = 2.0)
+    εU, εN = DDM._draw_pf_noise(MersenneTwister(5), 300, n_time(tr))
+    a = DDM._fpt_loglik_guided(m, n_time(tr), tr.choice, tr.dt, εU, εN;
+        u = tr.u, spikes = tr.spikes)
+    b = DDM._fpt_loglik_guided(m, n_time(tr), tr.choice, tr.dt, εU, εN;
+        u = tr.u, spikes = tr.spikes)
+    @test a == b && isfinite(a)
+    # gradient wrt the unconstrained parameters is finite and non-trivial
+    θ0 = DDM._unconstrained_θ0(m)
+    g = ForwardDiff.gradient(θ0) do θ
+        mm = DDM._model_from_unconstrained(θ, m)
+        DDM._fpt_loglik_guided(mm, n_time(tr), tr.choice, tr.dt, εU, εN;
+            u = tr.u, spikes = tr.spikes)
+    end
+    @test all(isfinite, g)
+    @test any(!iszero, g)
+end
+
+# Fast smoke + improvement test. Rigorous parameter recovery (which needs many
+# trials / particles / iterations) is exercised by the validation scripts, not the
+# unit suite — finite-sample MLEs and the v↔λ correlation make tight recovery
+# assertions flaky and slow.
+@testset "fit! - runs, improves likelihood, moves to sane params" begin
+    truth = FPTDDM(; v = 1.2, B = 1.0, a₀ = 0.55, λ = 0.3, σ² = 1.0,
+                   b = [8.0, 10.0], w = [12.0, -8.0])
+    rng = MersenneTwister(2026)
+    trials = [simulate_trial(rng, truth, 0.01; max_time = 1.0) for _ = 1:40]
+
+    init = FPTDDM(; v = 0.6, B = 1.4, a₀ = 0.5, λ = 0.0, σ² = 1.0,
+                  b = zeros(2), w = fill(1.0, 2))
+    before = loglik(init, trials; N = 800, rng = MersenneTwister(1))
+    fitted, res = fit!(init, trials; N = 800, rng = MersenneTwister(7),
+        optim_options = Optim.Options(iterations = 50))
+    after = loglik(fitted, trials; N = 800, rng = MersenneTwister(1))
+
+    @test after > before                                # optimizer improved the fit
+    @test fitted.B > 0                                  # boundary stays valid
+    @test 0 < fitted.a₀ < 1                             # start point stays valid
+    @test all(isfinite, vcat(fitted.v, fitted.B, fitted.a₀, fitted.λ,
+        fitted.obs.b, fitted.obs.w))
+    @test fitted.obs.w != fill(1.0, 2)                  # parameters actually moved
 end

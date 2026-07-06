@@ -154,14 +154,37 @@ integrates to ~1). Behavior-only is thus a strict special case of the joint
 neural model.
 
 ```julia
-model = FPTDDM(; v = 1.0, B = 1.0, a₀ = 0.5, λ = 0.0, σ² = 1.0,
-               b = [0.3, 0.1], w = [1.2, -0.8])   # 2 neurons
-trial = simulate_trial(rng, model, 0.005; max_time = 2.0)  # spikes + choice + RT
-ll    = loglik(model, trial; N = 1024, rng = rng)          # joint log-likelihood
+truth = FPTDDM(; v = 1.2, B = 1.0, a₀ = 0.55, λ = 0.3, σ² = 1.0,
+               b = [8.0, 12.0, 6.0], w = [14.0, -8.0, 10.0])   # 3 neurons
+trials = [simulate_trial(rng, truth, 0.01; max_time = 2.0) for _ in 1:200]
+ll     = loglik(truth, trials; N = 1024, rng = rng)            # joint log-likelihood
+
+# maximum-likelihood fit
+init = FPTDDM(; v = 0.6, B = 1.5, a₀ = 0.5, λ = 0.0, σ² = 1.0, b = zeros(3), w = ones(3))
+fitted, result = fit!(init, trials; N = 2000)
 ```
 
-Parameter fitting (differentiable PF under common random numbers) is the next
-planned step.
+### Fitting (`fit!`)
+
+`fit!` maximizes the marginal likelihood with L-BFGS, differentiating a
+**guided particle filter** with ForwardDiff. Getting a usable gradient here is
+subtle: a plain bootstrap filter makes the likelihood a *discontinuous* function
+of the parameters (particles are hard-killed at the boundary, and resampling flips
+ancestor indices), which stalls gradient-based optimizers. The fitter avoids this
+by
+
+* proposing the next state from the transition **truncated to (0, B)** (particles
+  never overshoot and die), sampled by a differentiable inverse-CDF map, with the
+  survival mass and Brownian-bridge factor folded in as smooth weights; and
+* using **no resampling** — the guided proposal keeps the effective sample size
+  high enough for pure importance sampling, and resampling would both reintroduce
+  discontinuities and bias the gradient.
+
+The result is a smooth, low-bias objective whose ForwardDiff gradient matches
+finite differences to ~1e-7, giving clean parameter recovery. `B` (log-space) and
+`a₀` (logit) are fit unconstrained; `σ²` (scale anchor) and `τ` are held fixed.
+Increase `N` for datasets with long trials (importance-weight variance grows with
+trial length).
 
 ## File Structure
 
