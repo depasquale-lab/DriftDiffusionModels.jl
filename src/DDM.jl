@@ -43,6 +43,10 @@ with drift rate v, boundary separation B, starting point α₀, non-decision tim
 This implementation follows the algorithm described in Navarro & Fuss (2009).
 """
 function wfpt(t::Real, v::Real, B::Real, w::Real, τ::Real, err::Real=1e-8)
+    if !(isfinite(t) && isfinite(v) && isfinite(B) && isfinite(w) && isfinite(τ)) || B <= 0
+        return oftype(float(t * v * B * w * τ), NaN)
+    end
+
     # Check for valid inputs
     if t <= τ
         return 0.0
@@ -68,9 +72,11 @@ function wfpt(t::Real, v::Real, B::Real, w::Real, τ::Real, err::Real=1e-8)
     end
     
     # Compute f(tt|0,1,w)
-    Kcap = 1e6
+    # Bound work for extreme inputs.
+    Kcap = 1.0e4
     p = 0.0  # initialize density
     if ks < kl  # if small t is better...
+        isfinite(ks) || return oftype(float(t * v * B * w * τ), NaN)
         ks = min(ks, Kcap)  # cap kappa to avoid long loops
         K = ceil(Int, ks)  # round to smallest integer meeting error
         for k in -floor(Int, (K-1)/2):ceil(Int, (K-1)/2)  # loop over k
@@ -78,12 +84,9 @@ function wfpt(t::Real, v::Real, B::Real, w::Real, τ::Real, err::Real=1e-8)
         end
         p /= sqrt(2 * π * tt^3)  # add constant term
     else  # if large t is better...
+        isfinite(kl) || return oftype(float(t * v * B * w * τ), NaN)
         kl = min(kl, Kcap)  # cap kappa to avoid long loops
-        try
-            K = ceil(Int, kl)  # round to smallest integer meeting error
-        catch e
-            K = Kcap
-        end
+        K = ceil(Int, kl)  # round to smallest integer meeting error
         for k in 1:K
             p += k * exp(-(k^2) * (π^2) * tt / 2) * sin(k * π * w)  # increment sum
         end

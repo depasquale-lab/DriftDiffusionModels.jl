@@ -108,6 +108,64 @@ Trains an HMM-DDM model using EM.
 
 ---
 
+## Multilevel ("extended") DDM
+
+Each trial has DDM parameters drawn from a Gaussian distribution over
+`u = (u_B, u_τ, u_v, u_a₀)`:
+
+```
+u_t ~ N(m, diag σ0²),    B = exp(u_B), τ = exp(u_τ), v = exp(u_v), a₀ = σ(u_a₀)
+y_t ~ DDM(B_t, v_t, a₀_t, τ_t)
+```
+
+### Exact marginal likelihood
+
+```julia
+fit = fit_mlddm_exact(data; q = 8, qτ = 16, n_starts = 4)
+```
+
+The four-dimensional marginal likelihood is evaluated by quadrature and
+maximized over `(m, σ0)`. `q` controls Gauss–Hermite integration over `B`, `v`,
+and `a₀`; `qτ` controls a truncation-aware rule for `τ < rt` and defaults to
+`2q`. Check convergence before reporting a fit:
+
+```julia
+for r in quadrature_check(data, fit.m, fit.σ0)
+    @show r.q, r.qτ, r.loglik, r.delta_per_trial
+end
+```
+
+Useful diagnostics are `fit.converged`, `fit.n_converged`, `fit.quad_err`,
+`fit.boundary`, and `fit.n_zero`. Posterior summaries and conditional profiles
+are available with:
+
+```julia
+μ, sd = trial_posteriors(data, fit.m, fit.σ0)   # exact per-trial posteriors, 4 × N
+rows  = profile_sigma0(data, fit, 3)            # profile likelihood for σ0[v]
+```
+
+### Cost
+
+Each objective evaluation costs `O(n_trials · q³ · qτ)`. Use `max_trials` to
+fit a reproducible subsample when the full dataset is too expensive:
+
+```julia
+fit = fit_mlddm_exact(data; max_trials = 5000, rng = MersenneTwister(1))
+```
+
+The fit records the selected indices and sample sizes. Between-trial variances
+can be weakly identified, so inspect `fit.boundary` and `profile_sigma0` before
+interpreting `σ0`.
+
+### Legacy: variational inference
+
+```julia
+hyper, qs, elbo_history = fit_vi_gaussian(data; n_iter = 10, K = 3)
+```
+
+Retained for reproducing earlier results. See `experiments/vi_validation/` for
+validation and known limitations.
+
 ## Model Comparison
 
 ### Log-Likelihood Ratio
@@ -132,6 +190,9 @@ Computes the per-observation log-likelihood ratio (in bits) between multi-state 
 * `DriftDiffusionModels.jl` – Main module file
 * `DDM.jl` – Drift Diffusion Model definitions and utilities
 * `HMMDDM.jl` – HMM wrapper with DDM emissions and training
+* `eDDMExact.jl` – Multilevel DDM by exact marginal likelihood (recommended)
+* `eDDM.jl` – Multilevel DDM by variational inference (legacy)
+* `experiments/vi_validation/` – Validation suite for the above two
 
 ---
 
