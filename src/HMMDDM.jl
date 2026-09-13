@@ -77,6 +77,11 @@ Base.length(hmm::PriorHMM) = length(hmm.init)
 HiddenMarkovModels.initialization(hmm::PriorHMM)    = hmm.init
 HiddenMarkovModels.transition_matrix(hmm::PriorHMM) = hmm.trans
 HiddenMarkovModels.obs_distributions(hmm::PriorHMM) = hmm.dists
+# HiddenMarkovModels ≥ 0.7 dispatches `viterbi`/`forward_backward` through the
+# no-control fallbacks `log_*(hmm, ::Nothing) = log_*(hmm)`, which have no
+# generic one-argument method — define them explicitly.
+HiddenMarkovModels.log_initialization(hmm::PriorHMM)    = log.(hmm.init)
+HiddenMarkovModels.log_transition_matrix(hmm::PriorHMM) = log.(hmm.trans)
 
 ######################################################################
 # Prior log‑density

@@ -29,6 +29,44 @@ under reparameterisation, so no Jacobian/volume correction is needed (that term
 would only matter for sampling or for the mode of a transformed *density*).
 """
 
+
+#=
+ Shared helpers: initial distribution + transition matrix (un)packing.
+=#
+
+"""
+    _unpack_init_trans(θ, K) -> (init, trans, off)
+
+Decode the leading `K + K²` entries of `θ` into `init = softmax(θ[1:K])` and a
+row-stochastic `trans` (row `j` is the softmax of its `K` logits). Returns the
+offset `off = K + K²` at which the emission block starts.
+"""
+function _unpack_init_trans(θ::AbstractVector, K::Int)
+    T = eltype(θ)
+    init = softmax(θ[1:K])
+    off = K
+    trans = Matrix{T}(undef, K, K)
+    for j in 1:K
+        trans[j, :] = softmax(θ[off + (j - 1) * K + 1 : off + j * K])
+    end
+    return init, trans, off + K * K
+end
+
+"""
+    _pack_init_trans(hmm) -> Vector{Float64}
+
+Encode `hmm.init` and the rows of `hmm.trans` as softmax-invariant logits.
+"""
+function _pack_init_trans(hmm::PriorHMM)
+    K = length(hmm)
+    θ = Float64[]
+    append!(θ, log.(hmm.init))
+    for j in 1:K
+        append!(θ, log.(hmm.trans[j, :]))
+    end
+    return θ
+end
+
 """
     unpack_coherent_hmm(θ, K; share_α=false) -> (init, trans, dists)
 
@@ -45,15 +83,7 @@ Layout of `θ`:
 """
 function unpack_coherent_hmm(θ::AbstractVector, K::Int; share_α::Bool=false)
     T = eltype(θ)
-
-    init = softmax(θ[1:K])
-
-    off = K
-    trans = Matrix{T}(undef, K, K)
-    for j in 1:K
-        trans[j, :] = softmax(θ[off + (j - 1) * K + 1 : off + j * K])
-    end
-    off += K * K
+    init, trans, off = _unpack_init_trans(θ, K)
 
     dists = Vector{CoherentDDM{T}}(undef, K)
     if share_α
@@ -139,12 +169,7 @@ consumed by [`unpack_coherent_hmm`](@ref) / [`coherent_hmm_loglikelihood`](@ref)
 The `share_α` layout is selected from `hmm.share_α`.
 """
 function pack_coherent_hmm(hmm::PriorHMM{<:Real,<:CoherentDDM})
-    K = length(hmm)
-    θ = Float64[]
-    append!(θ, log.(hmm.init))                 # softmax-invariant logits
-    for j in 1:K
-        append!(θ, log.(hmm.trans[j, :]))
-    end
+    θ = _pack_init_trans(hmm)                  # softmax-invariant logits
     if hmm.share_α
         for m in hmm.dists
             append!(θ, (log(m.B), log(m.k), logit(m.a₀), log(m.τ)))
@@ -203,11 +228,186 @@ function fit_hmm_gradient!(hmm::PriorHMM{<:Real,<:CoherentDDM},
     negobj(θ) = prior ?
         -coherent_hmm_logposterior(θ, hmm, obs; seq_ends=seq_ends) :
         -coherent_hmm_loglikelihood(θ, obs; K=length(hmm), share_α=hmm.share_α, seq_ends=seq_ends)
-    g! = (g, θ) -> ForwardDiff.gradient!(g, negobj, θ)
+    cfg = ForwardDiff.GradientConfig(negobj, θ0)
+    g! = (g, θ) -> ForwardDiff.gradient!(g, negobj, θ, cfg)
 
     result = optimize(negobj, g!, θ0, optimizer,
                       Optim.Options(iterations=iterations, show_trace=show_trace))
 
     set_coherent_hmm!(hmm, Optim.minimizer(result))
+    return hmm, result
+end
+
+#=
+ Omission-aware HMM: PriorHMM{<:Real,<:OmissionCoherentDDM}
+=#
+
+"""
+    omission_flags(hmm::PriorHMM{<:Real,<:OmissionCoherentDDM}) -> Vector{Bool}
+
+`true` for each state that is the deterministic omission state.
+"""
+omission_flags(hmm::PriorHMM{<:Real,<:OmissionCoherentDDM}) = Bool[m.omission for m in hmm.dists]
+
+"""
+    n_omission_hmm_params(hmm::PriorHMM{<:Real,<:OmissionCoherentDDM}) -> Int
+
+Length of the packed parameter vector: `K + K²` init/transition logits plus
+`5` per DDM state (`4` per DDM state plus one shared `α` when `hmm.share_α`).
+Omission states contribute nothing.
+"""
+function n_omission_hmm_params(hmm::PriorHMM{<:Real,<:OmissionCoherentDDM})
+    K = length(hmm)
+    nd = count(!, omission_flags(hmm))
+    return K + K * K + (hmm.share_α ? 4 * nd + 1 : 5 * nd)
+end
+
+"""
+    unpack_omission_hmm(θ, omission::AbstractVector{Bool}; share_α=false, rt_max=60.0)
+        -> (init, trans, dists)
+
+Decode an unconstrained vector into `init`, `trans` and a homogeneous
+`Vector{OmissionCoherentDDM{eltype(θ)}}`. `omission[i]` marks state `i` as the
+deterministic omission state, which consumes **no** entries of `θ`; DDM states
+consume `uB,uk,uα,ua₀,uτ` each (or `uB,uk,ua₀,uτ` plus a single trailing shared
+`uα` when `share_α`). `rt_max` may be a scalar or a length-`K` vector.
+
+Layout of `θ`: `K` init logits, `K` blocks of `K` transition logits, then the
+DDM-state emission blocks in state order, then (optionally) the shared `uα`.
+"""
+function unpack_omission_hmm(θ::AbstractVector, omission::AbstractVector{Bool};
+                             share_α::Bool=false, rt_max=60.0)
+    T = eltype(θ)
+    K = length(omission)
+    init, trans, off = _unpack_init_trans(θ, K)
+
+    dists = Vector{OmissionCoherentDDM{T}}(undef, K)
+    α_shared = share_α ? exp(θ[end]) : zero(T)
+    o = off
+    @inbounds for i in 1:K
+        rtm = rt_max isa Number ? Float64(rt_max) : Float64(rt_max[i])
+        if omission[i]
+            dists[i] = OmissionCoherentDDM{T}(_placeholder_ddm(T), true, rtm)
+        elseif share_α
+            ddm = CoherentDDM{T}(exp(θ[o + 1]), exp(θ[o + 2]), α_shared,
+                                 logistic(θ[o + 3]), exp(θ[o + 4]), false)
+            dists[i] = OmissionCoherentDDM{T}(ddm, false, rtm)
+            o += 4
+        else
+            ddm = CoherentDDM{T}(exp(θ[o + 1]), exp(θ[o + 2]), exp(θ[o + 3]),
+                                 logistic(θ[o + 4]), exp(θ[o + 5]), true)
+            dists[i] = OmissionCoherentDDM{T}(ddm, false, rtm)
+            o += 5
+        end
+    end
+    return init, trans, dists
+end
+
+"""
+    pack_omission_hmm(hmm::PriorHMM{<:Real,<:OmissionCoherentDDM}) -> Vector{Float64}
+
+Encode `hmm` into the unconstrained vector consumed by
+[`unpack_omission_hmm`](@ref). Omission states contribute no entries.
+"""
+function pack_omission_hmm(hmm::PriorHMM{<:Real,<:OmissionCoherentDDM})
+    θ = _pack_init_trans(hmm)
+    ddms = [m.ddm for m in hmm.dists if !m.omission]
+    if hmm.share_α
+        isempty(ddms) && throw(ArgumentError("share_α requires at least one DDM state"))
+        for d in ddms
+            append!(θ, (log(d.B), log(d.k), logit(d.a₀), log(d.τ)))
+        end
+        push!(θ, log(ddms[1].α))
+    else
+        for d in ddms
+            append!(θ, (log(d.B), log(d.k), log(d.α), logit(d.a₀), log(d.τ)))
+        end
+    end
+    return θ
+end
+
+"""
+    set_omission_hmm!(hmm::PriorHMM{<:Real,<:OmissionCoherentDDM}, θ) -> hmm
+
+Write the parameters encoded in `θ` back into `hmm` in place. Emission structs
+are immutable but wrap mutable `CoherentDDM`s, so the DDM parameters are updated
+through the wrapped objects; omission states are untouched.
+"""
+function set_omission_hmm!(hmm::PriorHMM{<:Real,<:OmissionCoherentDDM}, θ::AbstractVector)
+    init, trans, dists = unpack_omission_hmm(θ, omission_flags(hmm); share_α=hmm.share_α)
+    hmm.init  .= init
+    hmm.trans .= trans
+    for i in eachindex(hmm.dists)
+        hmm.dists[i].omission && continue
+        m, d = hmm.dists[i].ddm, dists[i].ddm
+        m.B, m.k, m.α, m.a₀, m.τ = d.B, d.k, d.α, d.a₀, d.τ
+    end
+    return hmm
+end
+
+"""
+    omission_hmm_loglikelihood(θ, hmm, obs; seq_ends=[length(obs)]) -> Real
+
+Marginal log-likelihood of `obs` under the omission-aware HMM whose structure
+(number of states, omission flags, `share_α`) is taken from `hmm` and whose
+parameters are the unconstrained vector `θ`. Computed with
+HiddenMarkovModels.jl's forward algorithm; differentiable in `θ`.
+"""
+function omission_hmm_loglikelihood(θ::AbstractVector,
+                                    hmm::PriorHMM{<:Real,<:OmissionCoherentDDM},
+                                    obs::AbstractVector{OmissionCoherentDDMResult};
+                                    seq_ends=[length(obs)])
+    init, trans, dists = unpack_omission_hmm(θ, omission_flags(hmm); share_α=hmm.share_α,
+                                             rt_max=[m.rt_max for m in hmm.dists])
+    h = HiddenMarkovModels.HMM(init, trans, dists)
+    return DensityInterface.logdensityof(h, obs; seq_ends=seq_ends)
+end
+
+"""
+    omission_hmm_logposterior(θ, hmm, obs; seq_ends=[length(obs)]) -> Real
+
+Forward log-likelihood plus the `PriorHMM` Dirichlet log-prior on the initial
+distribution and transition rows (flat prior on emissions). Differentiable in `θ`.
+"""
+function omission_hmm_logposterior(θ::AbstractVector,
+                                   hmm::PriorHMM{<:Real,<:OmissionCoherentDDM},
+                                   obs::AbstractVector{OmissionCoherentDDMResult};
+                                   seq_ends=[length(obs)])
+    init, trans, dists = unpack_omission_hmm(θ, omission_flags(hmm); share_α=hmm.share_α,
+                                             rt_max=[m.rt_max for m in hmm.dists])
+    h = HiddenMarkovModels.HMM(init, trans, dists)
+    ll = DensityInterface.logdensityof(h, obs; seq_ends=seq_ends)
+    return ll + _dirichlet_logprior(init, trans, hmm.α_init, hmm.α_trans)
+end
+
+"""
+    fit_hmm_gradient!(hmm::PriorHMM{<:Real,<:OmissionCoherentDDM}, obs;
+                      seq_ends=[length(obs)], prior=true, optimizer=LBFGS(...),
+                      iterations=200, show_trace=false) -> (hmm, result)
+
+Direct gradient-descent fit (ForwardDiff through the forward algorithm) of an
+omission-aware HMM: MAP by default (`prior=true`), MLE with `prior=false`. The
+deterministic omission state has no parameters and is skipped by the
+optimiser; DDM states are estimated exactly as in the `CoherentDDM` method,
+including shared `α` when `hmm.share_α`. The optimum is written back into `hmm`.
+"""
+function fit_hmm_gradient!(hmm::PriorHMM{<:Real,<:OmissionCoherentDDM},
+                           obs::AbstractVector{OmissionCoherentDDMResult};
+                           seq_ends=[length(obs)],
+                           prior::Bool=true,
+                           optimizer=LBFGS(linesearch=Optim.LineSearches.BackTracking()),
+                           iterations::Int=200,
+                           show_trace::Bool=false)
+    θ0 = pack_omission_hmm(hmm)
+    negobj(θ) = prior ?
+        -omission_hmm_logposterior(θ, hmm, obs; seq_ends=seq_ends) :
+        -omission_hmm_loglikelihood(θ, hmm, obs; seq_ends=seq_ends)
+    cfg = ForwardDiff.GradientConfig(negobj, θ0)
+    g! = (g, θ) -> ForwardDiff.gradient!(g, negobj, θ, cfg)
+
+    result = optimize(negobj, g!, θ0, optimizer,
+                      Optim.Options(iterations=iterations, show_trace=show_trace))
+
+    set_omission_hmm!(hmm, Optim.minimizer(result))
     return hmm, result
 end
