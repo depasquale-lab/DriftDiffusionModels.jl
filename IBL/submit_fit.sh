@@ -1,44 +1,64 @@
 #!/bin/bash -l
-# SGE array job for BU's Shared Computing Cluster (SCC): one task per subject.
+# SGE array job for BU's Shared Computing Cluster (SCC): ONE TASK PER
+# (subject, K, restart), so all restarts run in parallel and results populate
+# incrementally as each restart finishes.
 #
 # Submit from the repository root:
 #     qsub IBL/submit_fit.sh
 #
-# Each array task fits one (subject, K) pair: subjects are the top-N by trial
-# count, N = (number of tasks) / (number of K values). With -t 1-12 and K in
-# {1,2,3} that is the top 4 subjects. Adjust -P to your project.
+# Subjects are the TOP-N by trial count and tasks are ordered subject-major, so
+# the animals with the most trials are scheduled first. Layout with the defaults
+# below (TOP=6, K in {3,4,5}, 10 restarts): 6 * 3 * 10 = 180 tasks, and the
+# array must be submitted as -t 1-180 (task count = TOP * #K * RESTARTS —
+# keep the -t line below in sync if you change TOP/KS/RESTARTS).
+#
+# Aggregate at any time (also mid-run) with:
+#     julia --project=IBL IBL/collect_results.jl
+#
 # Before the first submission, instantiate the IBL environment once on the SCC:
-#     module load julia
-#     julia --project=IBL -e 'using Pkg; Pkg.instantiate(); Pkg.precompile()'
+#     julia --project=IBL -e 'using Pkg; Pkg.develop(path="."); Pkg.instantiate(); Pkg.precompile()'
 
 #$ -N ibl_omission_ddm
-#$ -P YOUR_PROJECT
-#$ -l h_rt=48:00:00
+#$ -P depaqlab
+#$ -l h_rt=36:00:00
 #$ -l mem_per_core=8G
 #$ -pe omp 8
-#$ -t 1-12
+#$ -t 1-120
 #$ -j y
 #$ -o IBL/logs/$JOB_NAME.$JOB_ID.$TASK_ID.log
 
 set -euo pipefail
 
-module load julia
+# All four are overridable at submission without editing this file, e.g.
+#     qsub -v KS="6",ITERATIONS=1000 -t 1-60 IBL/submit_fit.sh
+# (keep the -t range = TOP * #KS * RESTARTS). A resubmission with a higher
+# ITERATIONS warm-starts each already-finished restart from its saved model.
+TOP=${TOP:-6}                     # number of subjects (most trials first)
+read -ra KS <<< "${KS:-3 4 5}"    # DDM state counts (each fit adds one omission state)
+RESTARTS=${RESTARTS:-10}          # random restarts per (subject, K)
+ITERATIONS=${ITERATIONS:-1000}    # L-BFGS iteration target per restart
 
 cd "${SGE_O_WORKDIR}"          # repository root (where qsub was run)
 mkdir -p IBL/logs
 
-# One array task per (subject, K): tasks 1-3 → subject 1 with K=1,2,3, tasks 4-6 → subject 2, …
-KS=(1 2 3)
+# subject-major task layout: tasks 1..(NK*R) → subject 1, next block → subject 2, …
+# within a subject: K-major, restart-minor (K1 r1..rR, K2 r1..rR, …)
 NK=${#KS[@]}
-TOP=$(( (SGE_TASK_LAST + NK - 1) / NK ))          # number of subjects = tasks / K values
-SUBJ=$(( (SGE_TASK_ID - 1) / NK + 1 ))
-K=${KS[$(( (SGE_TASK_ID - 1) % NK ))]}
+PER_SUBJ=$(( NK * RESTARTS ))
+SUBJ=$(( (SGE_TASK_ID - 1) / PER_SUBJ + 1 ))
+REM=$(( (SGE_TASK_ID - 1) % PER_SUBJ ))
+K=${KS[$(( REM / RESTARTS ))]}
+RESTART=$(( REM % RESTARTS + 1 ))
 
 export JULIA_NUM_THREADS=${NSLOTS:-1}
 export JULIA_DEPOT_PATH="${JULIA_DEPOT_PATH:-$HOME/.julia}"
 
-echo "host=$(hostname) task=${SGE_TASK_ID}/${SGE_TASK_LAST} subject_rank=${SUBJ}/${TOP} K=${K} threads=${JULIA_NUM_THREADS}"
+echo "host=$(hostname) task=${SGE_TASK_ID}/${SGE_TASK_LAST} subject_rank=${SUBJ}/${TOP} K=${K} restart=${RESTART} threads=${JULIA_NUM_THREADS}"
 
-# Timing guide (44k trials, 8 threads): ~35 s/iteration at K=1, ~70-80 s at K=2-3,
-# so 2 restarts x 200 iterations at K=3 is roughly 9 h.
-julia --project=IBL -t "${JULIA_NUM_THREADS}" IBL/fit_omission_hmm.jl     --top "${TOP}"     --task-id "${SUBJ}"     --K "${K}"     --restarts 2     --iterations 200     --out IBL/results
+julia --project=IBL -t "${JULIA_NUM_THREADS}" IBL/fit_omission_hmm.jl \
+    --top "${TOP}" \
+    --task-id "${SUBJ}" \
+    --K "${K}" \
+    --restart-id "${RESTART}" \
+    --iterations "${ITERATIONS}" \
+    --out IBL/results
