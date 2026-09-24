@@ -132,6 +132,13 @@ function update_hyper_from_qs(qs::Vector{<:TrialVIParams})
     return DDMHyper(collect(m), collect(logσ0))
 end
 
+"""
+    fit_vi_gaussian(data; n_iter=10, K=3, rng, verbose=true, init_from_data=true)
+
+Legacy variational fit of the multilevel DDM with Gaussian per-trial posteriors,
+using `K` Monte Carlo samples per trial. Returns `(hyper, qs, elbo_history)`.
+Prefer [`fit_mlddm_exact`](@ref); this is kept to reproduce earlier results.
+"""
 function fit_vi_gaussian(data::Vector{DDMResult};
                          n_iter::Int=10,
                          K::Int=3,
