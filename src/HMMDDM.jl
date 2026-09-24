@@ -73,6 +73,8 @@ Base.length(hmm::PriorHMM) = length(hmm.init)
 
 HiddenMarkovModels.initialization(hmm::PriorHMM)    = hmm.init
 HiddenMarkovModels.transition_matrix(hmm::PriorHMM) = hmm.trans
+# needed by `viterbi`; HiddenMarkovModels.jl has no single-argument fallback
+HiddenMarkovModels.log_transition_matrix(hmm::PriorHMM) = log.(hmm.trans)
 HiddenMarkovModels.obs_distributions(hmm::PriorHMM) = hmm.dists
 
 ######################################################################

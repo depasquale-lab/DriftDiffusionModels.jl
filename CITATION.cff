@@ -1,0 +1,25 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below, and cite the accompanying paper (see preferred-citation)."
+title: "DriftDiffusionModels.jl"
+type: software
+authors:
+  - family-names: Senne
+    given-names: Ryan
+    email: rsenne@bu.edu
+repository-code: "https://github.com/depasquale-lab/DriftDiffusionModels.jl"
+license: MIT
+version: 0.0.1
+keywords:
+  - drift diffusion model
+  - hidden Markov model
+  - decision making
+  - Julia
+# TODO: replace with the paper reference once available (add doi/journal/year).
+preferred-citation:
+  type: article
+  title: "TODO: paper title"
+  authors:
+    - family-names: Senne
+      given-names: Ryan
+  journal: "TODO"
+  year: 2026

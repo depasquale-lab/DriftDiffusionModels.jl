@@ -170,13 +170,16 @@ function DensityInterface.logdensityof(model::DriftDiffusionModel, x::DDMResult)
 end
 
 """
-    logdensityof(B, v, a₀, τ, rt, choice; s=+1)
+    logdensityof(B, v, a₀, τ, rt, choice, s)
 
 Trial log-density given stimulus side s ∈ {-1,+1}.
 - choice: -1 = lower (Left), +1 = upper (Right)
 - s: +1 means "Right is correct", -1 means "Left is correct"
+
+Extends `DensityInterface.logdensityof` so the name does not clash with
+HiddenMarkovModels.jl, which re-exports it.
 """
-function logdensityof(B::TB, v::TV, a₀::TA, τ::TT,
+function DensityInterface.logdensityof(B::TB, v::TV, a₀::TA, τ::TT,
                       rt::Float64, choice::Int, s::Int
 ) where {TB<:Real, TV<:Real, TA<:Real, TT<:Real}
     if rt <= 0
