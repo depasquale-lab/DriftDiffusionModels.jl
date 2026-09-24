@@ -26,5 +26,8 @@ using DriftDiffusionModels
     @testset verbose=true "OmissionCoherentDDM Tests" begin
         include("test_omission_ddm.jl")
     end
+    @testset verbose=true "eDDM Exact Tests" begin
+        include("test_eDDMExact.jl")
+    end
 end
 

@@ -25,8 +25,11 @@ include("Transforms.jl")
 include("CoherentDDM.jl")
 include("OmissionCoherentDDM.jl")
 include("GradientHMM.jl")
+include("eDDMExact.jl")
 
-export DriftDiffusionModel, DDMResult, rand, logdensityof, fit!, crossvalidate, PriorHMM, simulateDDM, wfpt, randomDDM, logistic, fit_vi_gaussian,
+export DriftDiffusionModel, DDMResult, rand, logdensityof, fit!, PriorHMM, init_hmm_ddm, calculate_ll_ratio, simulateDDM, wfpt, logistic, fit_vi_gaussian,
+       fit_mlddm_exact, MLDDMFit, marginal_loglik, quadrature_check,
+       trial_posteriors, profile_sigma0, gauss_hermite,
        CoherentDDM, CoherentDDMResult, fit_shared_α!,
        logit, softmax, logsoftmax, logsumexp,
        coherent_to_unconstrained, coherent_from_unconstrained,

@@ -155,7 +155,7 @@ Log-density of a CoherentDDM trial. The signed drift is `v = s·k·c^α`,
 with `v = 0` defined at `c = 0` for all α (continuous extension).
 Uses the lower-boundary WFPT density with reflection for upper-boundary responses.
 """
-function logdensityof(B::TB, k::TK, α::TAlpha, a₀::TA, τ::TT,
+function DensityInterface.logdensityof(B::TB, k::TK, α::TAlpha, a₀::TA, τ::TT,
                       rt::Float64, choice::Int, s::Int, c::Float64
 ) where {TB<:Real, TK<:Real, TAlpha<:Real, TA<:Real, TT<:Real}
     if rt <= 0
