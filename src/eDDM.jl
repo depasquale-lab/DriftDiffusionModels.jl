@@ -89,7 +89,8 @@ function optimize_trial_vi(q0, y, hyper, eps)
         isfinite(elbo_val) ? elbo_val : 1e10
     end
 
-    res = optimize(f, θ0, BFGS(linesearch=Optim.LineSearches.BackTracking()); autodiff=:forward)
+    g! = (g, θ) -> ForwardDiff.gradient!(g, f, θ)
+    res = optimize(f, g!, θ0, BFGS(linesearch=Optim.LineSearches.BackTracking()))
     if !Optim.converged(res) || any(isnan, Optim.minimizer(res))
         @warn "Trial optimization failed, keeping initial parameters"
         return q0
@@ -132,6 +133,13 @@ function update_hyper_from_qs(qs::Vector{<:TrialVIParams})
     return DDMHyper(collect(m), collect(logσ0))
 end
 
+"""
+    fit_vi_gaussian(data; n_iter=10, K=3, rng, verbose=true, init_from_data=true)
+
+Legacy variational fit of the multilevel DDM with Gaussian per-trial posteriors,
+using `K` Monte Carlo samples per trial. Returns `(hyper, qs, elbo_history)`.
+Prefer [`fit_mlddm_exact`](@ref); this is kept to reproduce earlier results.
+"""
 function fit_vi_gaussian(data::Vector{DDMResult};
                          n_iter::Int=10,
                          K::Int=3,

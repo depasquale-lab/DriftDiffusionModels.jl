@@ -1,140 +1,136 @@
 # DriftDiffusionModels.jl
 
-**DriftDiffusionModels.jl** is a Julia package for simulating, fitting, and analyzing Drift Diffusion Models (DDMs), with support for multi-state Hidden Markov Models (HMMs) whose emission distributions are governed by DDMs. The package provides tools for simulation, inference, and model selection via cross-validation.
+[![Docs](https://img.shields.io/badge/docs-dev-blue.svg)](https://depasquale-lab.github.io/DriftDiffusionModels.jl/dev/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-> **Note**: This package is **not intended as a production-ready DDM toolkit**. For a more complete and sophisticated implementation of sequential sampling models including advanced DDM variants, we recommend using [`SequentialSamplingModels.jl`](https://github.com/itsdfish/SequentialSamplingModels.jl).
+Fit drift diffusion models (DDMs) to choice and response-time data in Julia,
+including:
 
----
+* **HMM-DDM**: hidden Markov models in which each latent state has its own DDM
+  (e.g. engaged vs. disengaged), fit by EM with Dirichlet priors on the
+  transitions, with state decoding through
+  [HiddenMarkovModels.jl](https://github.com/gdalle/HiddenMarkovModels.jl).
+* **Multilevel DDM**: trial-to-trial variability in all four DDM parameters,
+  fit by exact (quadrature) marginal likelihood.
+* **Coherence-dependent DDM** (`CoherentDDM`): drift scales with stimulus
+  coherence, with an optional deterministic **omission state**
+  (`OmissionCoherentDDM`) for tasks with a response window. HMMs over these
+  are fit by direct gradient ascent on the marginal likelihood
+  (`fit_hmm_gradient!`).
+* The single-trial DDM building blocks: WFPT density (Navarro & Fuss, 2009),
+  maximum-likelihood fitting, and Euler–Maruyama simulation.
 
-## Features
+This package was developed for the analyses in the accompanying paper (see
+[Citation](#citation)). For a broader library of sequential sampling models,
+see [SequentialSamplingModels.jl](https://github.com/itsdfish/SequentialSamplingModels.jl);
+this package is not yet integrated with it.
 
-* Simulation of DDM trajectories using the Euler–Maruyama method
-* Wiener First Passage Time (WFPT) density computation (Navarro & Fuss, 2009)
-* Log-likelihood and parameter estimation for DDMs via MLE
-* Hidden Markov Models with DDM emissions and Dirichlet priors
-* Baum–Welch (EM) training with MAP updates
-
----
+**Documentation, including a step-by-step tutorial for fitting your own data:
+<https://depasquale-lab.github.io/DriftDiffusionModels.jl/dev/>**
 
 ## Installation
 
-Clone the repository and include the module in your Julia environment:
+The package is not registered yet. Install from GitHub (Julia ≥ 1.10):
 
 ```julia
-include("DriftDiffusionModels.jl")
-using .DriftDiffusionModels
+using Pkg
+Pkg.add(url = "https://github.com/depasquale-lab/DriftDiffusionModels.jl")
+Pkg.add("HiddenMarkovModels")   # for baum_welch / viterbi / forward_backward
 ```
 
----
+## Quick start
 
-## Module Overview
+Each trial is a `DDMResult(rt, choice, s)`:
 
-### `DriftDiffusionModel`
+| field    | meaning                                                  |
+|----------|----------------------------------------------------------|
+| `rt`     | response time in **seconds**                             |
+| `choice` | side **responded**: `+1` right (upper bound), `-1` left |
+| `s`      | side that was **correct**: `+1` right, `-1` left         |
 
-The core structure representing a DDM:
+> [!IMPORTANT]
+> `choice` is the response side, **not** accuracy. If your data record
+> correct/incorrect as `±1`, use `choice = correct .* s`.
 
 ```julia
-DriftDiffusionModel(B, v, a₀, τ)
+using DriftDiffusionModels, HiddenMarkovModels, Random
+
+# rt, correct (±1), correct_side (±1), session: one entry per trial,
+# sorted by session and then by trial order
+choice = correct .* correct_side
+data   = [DDMResult(rt[i], choice[i], correct_side[i]) for i in eachindex(rt)]
+seq_ends = cumsum([count(==(s), session) for s in unique(session)])
+
+# single DDM (maximum likelihood)
+ddm = DriftDiffusionModel(; τ = 0.1)          # fields: B, v, a₀, τ
+fit!(ddm, data)
+
+# 2-state HMM-DDM
+hmm0 = init_hmm_ddm(MersenneTwister(1), data, 2)
+hmm, lls = baum_welch(hmm0, data; seq_ends)
+hmm.dists, hmm.trans                                  # per-state DDMs, transitions
+states, _ = viterbi(hmm, data; seq_ends)              # most likely state per trial
+γ, _      = forward_backward(hmm, data; seq_ends)     # posterior state probabilities
+
+# multilevel DDM (m, σ0 are on the unconstrained scale, ordered B, τ, v, a₀)
+fit = fit_mlddm_exact(data; q = 8, n_starts = 4)
 ```
 
-* `B`: Boundary separation
-* `v`: Drift rate
-* `a₀`: Initial fraction of the boundary
-* `τ`: Non-decision time
+The [tutorial](https://depasquale-lab.github.io/DriftDiffusionModels.jl/dev/tutorial/)
+runs this end to end on simulated data, covering data preparation from a CSV,
+choosing the number of states by held-out likelihood, setting priors, and
+checking multilevel fits.
 
-### `DDMResult`
+## Parameters
 
-Result of a single DDM simulation:
+`DriftDiffusionModel(B, v, a₀, τ)` with unit diffusion noise:
 
-```julia
-DDMResult(rt, choice, stimulus)
-```
+* `B`: boundary separation (`> 0`)
+* `v`: drift magnitude (`≥ 0`); its sign is set by the stimulus side `s`
+* `a₀`: starting point as a fraction of `B` (`0–1`); `> 0.5` biases toward right
+* `τ`: non-decision time (s)
 
-* `rt`: Response time
-* `choice`: Decision outcome (1 --> R or -1 --> L)
-* `stimulus`: Whether evidence favored left vs. right trials (1 --> R, -1 --> L)
+## Reproducing the paper
 
----
+The figures and analyses in the paper are produced by a separate analysis
+repository, which uses this package:
+[rsenne/24_Hour_Behavior](https://github.com/rsenne/24_Hour_Behavior). It has instructions for obtaining the
+data and regenerating each figure.
 
-## Key Functions
+In this repository:
 
-### Simulation
+* `notebooks/`: worked examples (`ExampleDDM`, `ExampleDDMHMM`, `ExampleeDDM`).
+  The mouse examples expect the dataset at `data/mouse_df.csv`, which is not
+  distributed here. Activate the notebook environment with
+  `julia --project=notebooks`.
+* `experiments/vi_validation/`: simulation study validating the multilevel DDM
+  fits (see its README).
+* `IBL/`: omission-aware HMM-DDM fitting pipeline for IBL trial data (see its
+  README).
+* `test/`: run with `julia --project -e 'using Pkg; Pkg.test()'`.
 
-```julia
-simulateDDM(model::DriftDiffusionModel, dt::Float64=1e-5)
-simulateDDM(model::DriftDiffusionModel, n::Int, dt::Float64=1e-5)
-```
+## Citation
 
-Simulates one or multiple trials of the DDM using Euler–Maruyama integration.
+If you use this package, please cite the paper and the software. Citation
+metadata is in [`CITATION.cff`](CITATION.cff) (GitHub shows it under "Cite
+this repository").
 
-### Likelihood
+> Senne, R. A., Xia, H., Duebel, H. F., Do, Q., Kane, G. A., Fourie, J.,
+> Ramirez, S., DePasquale, B., & Scott, B. B. (2026). Diurnal rhythms of
+> choice: a novel state-dependent drift diffusion model uncovers
+> time-dependent changes in rat decision making. *bioRxiv*.
+> https://www.biorxiv.org/content/10.64898/2026.05.25.727672v1
 
-```julia
-wfpt(t, v, B, w, τ)
-logdensityof(model::DriftDiffusionModel, result::DDMResult)
-```
+## License
 
-Computes the WFPT density and log-likelihood for observed DDM results.
+MIT. See [LICENSE](LICENSE).
 
-### Fitting
+## Contributing
 
-```julia
-StatsAPI.fit!(model::DriftDiffusionModel, data::Vector{DDMResult}, weights=ones(length(data)))
-```
-
-Fits a DDM to data using Maximum Likelihood Estimation (MLE), supporting observation weights (useful for HMM training).
-
----
-
-## Hidden Markov Models with DDM Emissions
-
-### `PriorHMM`
-
-A wrapper for Hidden Markov Models with Dirichlet priors on initial probabilities and transition matrices:
-
-```julia
-PriorHMM(init, trans, dists; α_trans, α_init)
-```
-
-Supports MAP updates via Baum–Welch.
-
-### Training
-
-```julia
-baum_welch(hmm, data; seq_ends)
-```
-
-Trains an HMM-DDM model using EM.
-
----
-
-## Model Comparison
-
-### Log-Likelihood Ratio
-
-```julia
-calculate_ll_ratio(ll, ll₀, n)
-```
-
-Computes the per-observation log-likelihood ratio (in bits) between multi-state and single-state models.
-
----
+Issues and pull requests are welcome.
 
 ## References
 
-* Navarro, D. J., & Fuss, I. G. (2009). Fast and accurate calculations for first-passage times in Wiener diffusion models.
-* HiddenMarkovModels.jl — backend for HMM routines.
-
----
-
-## File Structure
-
-* `DriftDiffusionModels.jl` – Main module file
-* `DDM.jl` – Drift Diffusion Model definitions and utilities
-* `HMMDDM.jl` – HMM wrapper with DDM emissions and training
-
----
-
-## Contributions
-
-Feel free to contribute pull requests or file issues to suggest features or report bugs!
+* Navarro, D. J., & Fuss, I. G. (2009). Fast and accurate calculations for
+  first-passage times in Wiener diffusion models. *Journal of Mathematical
+  Psychology*, 53(4), 222–230.

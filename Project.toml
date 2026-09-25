@@ -17,5 +17,16 @@ StatsAPI = "82ae8749-77ed-4fe6-ae5f-f523153014b0"
 StatsFuns = "4c63d2b9-4356-54db-8cca-17b64c39e42c"
 UnPack = "3a884ed6-31ef-47d7-9d2a-63182c4928ed"
 
+# Optim 2 requires migrating the legacy `autodiff=:forward` call sites.
 [compat]
+DensityInterface = "0.4"
+Distributions = "0.25"
+ForwardDiff = "0.10, 1"
+HiddenMarkovModels = "0.7"
+Optim = "1"
+SpecialFunctions = "2"
 Statistics = "1.11.1"
+StatsAPI = "1"
+StatsFuns = "1"
+UnPack = "1"
+julia = "1.10"

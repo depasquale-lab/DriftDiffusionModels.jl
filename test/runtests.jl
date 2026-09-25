@@ -1,7 +1,10 @@
 using Test
 using Random
+using Statistics
 using FiniteDiff
 using ForwardDiff
+import HiddenMarkovModels          # registers logdensityof(::AbstractHMM, …); imported (not used) to keep bare `logdensityof` unambiguous
+import DensityInterface
 using DriftDiffusionModels
 
 @testset verbose=true "DriftDiffusionModels.jl Tests" begin
@@ -16,6 +19,15 @@ using DriftDiffusionModels
     end
     @testset verbose=true "eDDM Tests" begin
         include("test_eDDM.jl")
+    end
+    @testset verbose=true "CoherentDDM Tests" begin
+        include("test_coherent_ddm.jl")
+    end
+    @testset verbose=true "OmissionCoherentDDM Tests" begin
+        include("test_omission_ddm.jl")
+    end
+    @testset verbose=true "eDDM Exact Tests" begin
+        include("test_eDDMExact.jl")
     end
 end
 

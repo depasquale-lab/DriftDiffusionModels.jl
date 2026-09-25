@@ -10,3 +10,6 @@ random.jl
 testing.jl
 /notebooks/random_files
 /figures
+/IBL/results
+/IBL/logs
+/docs/build
